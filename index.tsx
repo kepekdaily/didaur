@@ -22,41 +22,47 @@ const App = () => {
     const initApp = async () => {
       try {
         const savedUser = await getCurrentUser();
-        setUser(savedUser);
+        if (savedUser) {
+          setUser(savedUser);
+          setActiveTab(AppTab.HOME);
+        }
       } catch (e) {
-        console.error("Gagal memuat profil cloud:", e);
+        console.error("Gagal memuat profil:", e);
       } finally {
         setIsInitialized(true);
       }
     };
     initApp();
 
-    // 2. Pasang Listener Perubahan Auth (Login/Logout/Refresh/OAuth)
+    // 2. Listener Perubahan Auth (Menangani Google & OTP Sukses)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log("Auth Event:", event);
       if (session) {
         let profile = await fetchProfile(session.user.id);
         
-        // JIKA profil belum ada di tabel 'profiles' (biasanya terjadi pada login Google pertama kali)
+        // JIKA profil belum ada (biasanya terjadi pada login Google pertama kali atau verifikasi OTP baru)
         if (!profile && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
           const metadata = session.user.user_metadata;
-          const { error: profileError } = await supabase.from('profiles').insert({
+          const { error: profileError } = await supabase.from('profiles').upsert({
             id: session.user.id,
             email: session.user.email,
             name: metadata?.full_name || session.user.email?.split('@')[0] || 'Pejuang Daur',
             avatar: metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${session.user.id}`,
             points: 100,
-            rank: 'Pemula Hijau'
-          });
+            rank: 'Pemula Hijau',
+            items_scanned: 0,
+            total_co2_saved: 0
+          }, { onConflict: 'id' });
           
           if (!profileError) {
             profile = await fetchProfile(session.user.id);
-          } else {
-            console.error("Gagal membuat profil otomatis:", profileError);
           }
         }
         
-        setUser(profile);
+        if (profile) {
+          setUser(profile);
+          setActiveTab(AppTab.HOME);
+        }
       } else {
         setUser(null);
       }
@@ -78,6 +84,7 @@ const App = () => {
   const handleLogout = async () => {
     await logoutUser();
     setUser(null);
+    setActiveTab(AppTab.HOME);
   };
 
   const handleUserUpdate = (updatedUser: UserProfile) => {
@@ -88,7 +95,7 @@ const App = () => {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50 dark:bg-slate-950">
         <div className="w-12 h-12 border-4 border-slate-200 border-t-green-600 rounded-full animate-spin"></div>
-        <p className="mt-6 font-black text-green-600 text-[11px] uppercase tracking-[0.3em]">Menyambungkan ke Cloud...</p>
+        <p className="mt-6 font-black text-green-600 text-[11px] uppercase tracking-[0.3em] animate-pulse">Menghubungkan Akun...</p>
       </div>
     );
   }
@@ -101,7 +108,7 @@ const App = () => {
     <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} pb-20`}>
       <header className="bg-white/80 dark:bg-slate-950/80 backdrop-blur-md sticky top-0 z-40 px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center shadow-sm">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center shadow-lg shadow-green-200 dark:shadow-none">
+          <div className="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center shadow-lg">
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
@@ -109,18 +116,14 @@ const App = () => {
           <span className="text-2xl font-black tracking-tighter text-slate-900 dark:text-slate-100">Didaur</span>
         </div>
         <div className="flex items-center space-x-3">
-            <div className="hidden sm:flex flex-col items-end mr-2">
-               <span className="text-[8px] font-black text-green-600 uppercase tracking-widest">Global Node</span>
-               <span className="text-[10px] font-bold text-slate-400">Connected</span>
-            </div>
             <div className="bg-green-50 dark:bg-green-900/30 px-4 py-2 rounded-2xl border border-green-100 dark:border-green-800 flex items-center space-x-2 shadow-inner">
               <span className="text-lg font-black text-green-700 dark:text-green-400">{user.points.toLocaleString()}</span>
-              <span className="text-[8px] font-black text-green-600 bg-green-200 dark:bg-green-800/50 px-1.5 py-0.5 rounded text-white">XP</span>
+              <span className="text-[8px] font-black text-green-600 bg-green-200 dark:bg-green-800/50 px-1.5 py-0.5 rounded text-white uppercase">XP</span>
             </div>
         </div>
       </header>
 
-      <main className="max-w-md mx-auto relative">
+      <main className="max-w-md mx-auto relative animate-in fade-in slide-in-from-bottom-4 duration-500">
         {activeTab === AppTab.HOME && <Home user={user} setActiveTab={setActiveTab} isDarkMode={isDarkMode} />}
         {activeTab === AppTab.SCAN && <Scanner onPointsUpdate={handleUserUpdate} isDarkMode={isDarkMode} />}
         {activeTab === AppTab.COMMUNITY && <Community user={user} onPointsUpdate={handleUserUpdate} isDarkMode={isDarkMode} />}
