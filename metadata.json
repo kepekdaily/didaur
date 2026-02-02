@@ -1,0 +1,7 @@
+{
+  "name": "Didaur - AI Recycling Companion",
+  "description": "A gamified platform to identify used items using AI and provide creative recycling recommendations, complete with community sharing and leaderboards.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
