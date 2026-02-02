@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
 import { 
@@ -16,9 +17,11 @@ interface ProfileProps {
   onLogout: () => void;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
+  canInstall?: boolean;
+  onInstallRequest?: () => void;
 }
 
-const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onLogout, isDarkMode, onToggleDarkMode }) => {
+const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onLogout, isDarkMode, onToggleDarkMode, canInstall, onInstallRequest }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(user.name);
   const [avatar, setAvatar] = useState(user.avatar);
@@ -89,6 +92,16 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onLogout, isDarkMode,
           </div>
         )}
       </div>
+
+      {canInstall && (
+        <div className="bg-gradient-to-r from-green-600 to-emerald-700 p-6 rounded-[2.5rem] shadow-xl text-white flex items-center justify-between">
+          <div className="flex-1 pr-4">
+            <h3 className="font-black text-sm uppercase tracking-wider">Akses Lebih Cepat!</h3>
+            <p className="text-[10px] font-medium opacity-80 leading-relaxed mt-1">Instal Didaur AI di HP kamu untuk akses langsung dari layar utama.</p>
+          </div>
+          <button onClick={onInstallRequest} className="bg-white text-green-700 px-5 py-3 rounded-2xl font-black text-[10px] uppercase shadow-lg active:scale-95 transition-all">Instal</button>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 shadow-sm border border-slate-100 dark:border-slate-800 space-y-6">
         <div className="grid grid-cols-2 gap-4">
