@@ -157,6 +157,8 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
     }
   };
 
+  const isInvalidLogin = error === 'Email atau password salah.';
+
   return (
     <div className={`min-h-screen relative flex flex-col items-center justify-center p-6 transition-all duration-700 ${isDarkMode ? 'bg-slate-950' : 'bg-green-600'}`}>
       <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-20">
@@ -235,7 +237,20 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
                   </h2>
                 </div>
 
-                {error && <p className="text-[10px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-950/30 p-4 rounded-xl border border-rose-100 dark:border-rose-900/30 animate-in shake duration-300">⚠️ {error}</p>}
+                {error && (
+                  <div className="p-4 rounded-xl border bg-rose-50 dark:bg-rose-950/30 border-rose-100 dark:border-rose-900/30 animate-in shake duration-300">
+                    <p className="text-[10px] font-bold text-rose-500">⚠️ {error}</p>
+                    {isInvalidLogin && (
+                      <button 
+                        type="button" 
+                        onClick={() => { setAuthMode('forgot-password'); setError(''); }} 
+                        className="mt-2 text-[9px] font-black uppercase text-green-600 tracking-widest underline decoration-green-200"
+                      >
+                        Atur ulang password kamu di sini →
+                      </button>
+                    )}
+                  </div>
+                )}
                 
                 {authMode === 'register' && (
                   <div className="space-y-1">
