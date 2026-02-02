@@ -25,6 +25,7 @@ export interface RecyclingRecommendation {
   co2Impact: number;
   diyIdeas: DIYIdea[];
   timestamp?: number;
+  originalImage?: string; // Menyimpan foto asli hasil scan
 }
 
 export interface Comment {
