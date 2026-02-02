@@ -65,17 +65,25 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
       if (verifyError) throw verifyError;
 
       if (data.user) {
-        const { error: profileError } = await supabase.from('profiles').upsert({
-          id: data.user.id,
-          email: data.user.email,
-          name: name || 'Pejuang Daur',
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
-          points: 100,
-          rank: 'Pemula Hijau'
-        }, { onConflict: 'id' });
-
+        // Profil akan dibuat secara otomatis oleh listener onAuthStateChange di index.tsx
+        // Namun kita panggil fetchProfile di sini untuk memastikan transisi cepat
         const profile = await fetchProfile(data.user.id);
-        if (profile) onAuthComplete(profile);
+        if (profile) {
+          onAuthComplete(profile);
+        } else {
+          // Jika profil belum terbuat instan, buat manual di sini agar tidak stuck
+          const { error: profileError } = await supabase.from('profiles').upsert({
+            id: data.user.id,
+            email: data.user.email,
+            name: name || 'Pejuang Daur',
+            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
+            points: 100,
+            rank: 'Pemula Hijau'
+          }, { onConflict: 'id' });
+          
+          const newProfile = await fetchProfile(data.user.id);
+          if (newProfile) onAuthComplete(newProfile);
+        }
       }
     } catch (err: any) {
       setError(getFriendlyErrorMessage(err.message));
@@ -136,36 +144,66 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
         </div>
 
         {/* Auth Card */}
-        <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl rounded-[3rem] p-8 shadow-2xl border border-white/20">
+        <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl rounded-[3rem] p-8 shadow-2xl border border-white/20 overflow-hidden">
           
           {authStage === 'otp' ? (
             <div className="space-y-6 animate-in slide-in-from-right-8 duration-500">
-              <div className="text-center space-y-2">
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white">Verifikasi Email</h2>
-                <p className="text-xs font-medium text-slate-500">Masukkan 6 digit kode OTP yang kami kirim ke <b>{email}</b></p>
+              <div className="text-center space-y-3">
+                <div className="inline-block p-4 bg-green-100 dark:bg-green-900/30 rounded-2xl mb-2">
+                   <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                   </svg>
+                </div>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white leading-tight">Cek Email Kamu</h2>
+                <p className="text-xs font-medium text-slate-500 leading-relaxed">
+                  Kami telah mengirimkan 6 digit kode verifikasi ke <b>{email}</b>. Masukkan kode tersebut untuk masuk ke aplikasi.
+                </p>
               </div>
 
               <form onSubmit={handleVerifyOtp} className="space-y-6">
-                <input 
-                  type="text" 
-                  maxLength={6}
-                  placeholder="000000"
-                  className="w-full bg-slate-100 dark:bg-slate-800 p-5 rounded-2xl text-3xl font-black tracking-[0.5em] text-center outline-none border-2 border-transparent focus:border-green-500 dark:text-white"
-                  value={otpCode}
-                  onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                  required
-                />
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    maxLength={6}
+                    placeholder="0 0 0 0 0 0"
+                    className="w-full bg-slate-100 dark:bg-slate-800 p-6 rounded-3xl text-3xl font-black tracking-[0.3em] text-center outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all shadow-inner"
+                    value={otpCode}
+                    onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                    required
+                    autoFocus
+                  />
+                  {isLoading && (
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                       <div className="w-5 h-5 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  )}
+                </div>
 
-                {error && <p className="text-[10px] font-bold text-rose-500 text-center uppercase tracking-widest bg-rose-50 p-3 rounded-xl border border-rose-100">⚠️ {error}</p>}
+                {error && (
+                  <div className="animate-in shake duration-300">
+                    <p className="text-[10px] font-bold text-rose-500 text-center uppercase tracking-widest bg-rose-50 dark:bg-rose-950/30 p-4 rounded-2xl border border-rose-100 dark:border-rose-900/30">
+                      ⚠️ {error}
+                    </p>
+                  </div>
+                )}
 
-                <button type="submit" disabled={isLoading || otpCode.length < 6} className="w-full bg-green-600 text-white py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50 transition-all">
-                  {isLoading ? 'MEMVERIFIKASI...' : 'KONFIRMASI KODE'}
+                <button 
+                  type="submit" 
+                  disabled={isLoading || otpCode.length < 6} 
+                  className="group w-full bg-green-600 text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl shadow-green-200 dark:shadow-none active:scale-95 disabled:opacity-50 transition-all flex items-center justify-center space-x-2"
+                >
+                  <span>{isLoading ? 'MEMVERIFIKASI...' : 'VERIFIKASI & MASUK'}</span>
+                  {!isLoading && (
+                    <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                  )}
                 </button>
               </form>
 
-              <div className="text-center">
+              <div className="text-center pt-2">
                 <button 
-                  onClick={() => setAuthStage('initial')}
+                  onClick={() => { setAuthStage('initial'); setError(''); }}
                   className="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-green-600 transition-colors"
                 >
                   Ganti Email atau Kembali
@@ -177,7 +215,7 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
               {/* Main Form Section */}
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="text-center mb-6">
-                  <h2 className="text-2xl font-black text-slate-900 dark:text-white">
+                  <h2 className="text-2xl font-black text-slate-900 dark:text-white leading-tight">
                     {authMode === 'login' ? 'Selamat Datang' : 'Gabung Bersama Kami'}
                   </h2>
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
@@ -185,26 +223,26 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
                   </p>
                 </div>
 
-                {error && <p className="text-[10px] font-bold text-rose-500 bg-rose-50 p-3 rounded-xl border border-rose-100">⚠️ {error}</p>}
+                {error && <p className="text-[10px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-950/30 p-4 rounded-xl border border-rose-100 dark:border-rose-900/30 animate-in shake duration-300">⚠️ {error}</p>}
                 
                 {authMode === 'register' && (
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-400 px-2">Nama Lengkap</label>
-                    <input type="text" placeholder="Budi Santoso" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white" value={name} onChange={e => setName(e.target.value)} required />
+                    <label className="text-[9px] font-black uppercase text-slate-400 px-2 tracking-widest">Nama Lengkap</label>
+                    <input type="text" placeholder="Budi Santoso" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all" value={name} onChange={e => setName(e.target.value)} required />
                   </div>
                 )}
                 
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400 px-2">Email</label>
-                  <input type="email" placeholder="budi@email.com" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white" value={email} onChange={e => setEmail(e.target.value)} required />
+                  <label className="text-[9px] font-black uppercase text-slate-400 px-2 tracking-widest">Email</label>
+                  <input type="email" placeholder="budi@email.com" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all" value={email} onChange={e => setEmail(e.target.value)} required />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400 px-2">Password</label>
-                  <input type="password" placeholder="••••••••" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white" value={password} onChange={e => setPassword(e.target.value)} required />
+                  <label className="text-[9px] font-black uppercase text-slate-400 px-2 tracking-widest">Password</label>
+                  <input type="password" placeholder="••••••••" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all" value={password} onChange={e => setPassword(e.target.value)} required />
                 </div>
 
-                <button type="submit" disabled={isLoading} className="w-full bg-green-600 text-white py-4 rounded-xl font-black text-xs shadow-xl active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest mt-4">
+                <button type="submit" disabled={isLoading} className="w-full bg-green-600 text-white py-5 rounded-2xl font-black text-xs shadow-xl shadow-green-100 dark:shadow-none active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest mt-4">
                   {isLoading ? 'MENGHUBUNGKAN...' : authMode === 'login' ? 'MASUK KE AKUN' : 'DAFTAR DENGAN OTP'}
                 </button>
               </form>
@@ -219,7 +257,8 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
               {/* Or Separator and Google Sign-In (At the bottom) */}
               <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                 <div className="relative flex items-center justify-center">
-                  <span className="bg-white dark:bg-slate-900 px-4 text-[9px] font-black text-slate-400 uppercase tracking-widest">Atau Gunakan</span>
+                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100 dark:border-slate-800"></div></div>
+                  <span className="relative bg-white dark:bg-slate-900 px-4 text-[9px] font-black text-slate-400 uppercase tracking-widest">Atau Gunakan</span>
                 </div>
 
                 <button 
