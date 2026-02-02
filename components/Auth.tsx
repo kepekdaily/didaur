@@ -53,6 +53,8 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (otpCode.length < 6) return;
+    
     setError('');
     setIsLoading(true);
     try {
@@ -65,25 +67,41 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
       if (verifyError) throw verifyError;
 
       if (data.user) {
-        // Profil akan dibuat secara otomatis oleh listener onAuthStateChange di index.tsx
-        // Namun kita panggil fetchProfile di sini untuk memastikan transisi cepat
-        const profile = await fetchProfile(data.user.id);
-        if (profile) {
-          onAuthComplete(profile);
-        } else {
-          // Jika profil belum terbuat instan, buat manual di sini agar tidak stuck
-          const { error: profileError } = await supabase.from('profiles').upsert({
+        // Mencoba mengambil profil
+        let profile = await fetchProfile(data.user.id);
+        
+        if (!profile) {
+          // Jika belum ada, buat profil manual segera di database
+          const profileData = {
             id: data.user.id,
             email: data.user.email,
             name: name || 'Pejuang Daur',
             avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
             points: 100,
             rank: 'Pemula Hijau'
-          }, { onConflict: 'id' });
+          };
           
-          const newProfile = await fetchProfile(data.user.id);
-          if (newProfile) onAuthComplete(newProfile);
+          await supabase.from('profiles').upsert(profileData);
+          
+          // Fallback Profile Object untuk dikirim ke parent state
+          profile = {
+            id: profileData.id,
+            email: profileData.email || '',
+            name: profileData.name,
+            points: 100,
+            rank: 'Pemula Hijau',
+            itemsScanned: 0,
+            plasticItemsScanned: 0,
+            commentsMade: 0,
+            creationsShared: 0,
+            totalCo2Saved: 0,
+            avatar: profileData.avatar,
+            badges: []
+          };
         }
+        
+        // Panggil callback untuk masuk ke aplikasi
+        onAuthComplete(profile);
       }
     } catch (err: any) {
       setError(getFriendlyErrorMessage(err.message));
@@ -116,6 +134,24 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
         if (data.user) {
           const profile = await fetchProfile(data.user.id);
           if (profile) onAuthComplete(profile);
+          else {
+            // Jika user ada tapi profil belum, trigger onAuthStateChange di App
+            // atau buat profil minimal
+            onAuthComplete({
+              id: data.user.id,
+              email: data.user.email || '',
+              name: data.user.user_metadata?.full_name || 'Pejuang Daur',
+              points: 100,
+              rank: 'Pemula Hijau',
+              itemsScanned: 0,
+              plasticItemsScanned: 0,
+              commentsMade: 0,
+              creationsShared: 0,
+              totalCo2Saved: 0,
+              avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
+              badges: []
+            });
+          }
         }
       }
     } catch (err: any) {
