@@ -2,6 +2,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { RecyclingRecommendation } from "../types";
 
+// Helper function to clean potential markdown from JSON response
 const cleanJsonResponse = (text: string): string => {
   return text
     .replace(/```json/g, "")
@@ -11,22 +12,24 @@ const cleanJsonResponse = (text: string): string => {
 };
 
 export const analyzeImage = async (base64Image: string): Promise<RecyclingRecommendation> => {
+  // Ensure the API key is available as per guidelines.
   const apiKey = process.env.API_KEY;
   
-  if (!apiKey || apiKey === "your-gemini-api-key" || apiKey.trim() === "") {
-    throw new Error("API_KEY belum terpasang di Vercel. Harap cek Environment Variables.");
+  if (!apiKey) {
+    throw new Error("API_KEY belum terpasang di environment variables.");
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    // Correct initialization: always use new GoogleGenAI({ apiKey: process.env.API_KEY }).
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // Gunakan gemini-3-flash-preview untuk kecepatan maksimal
+    // Use gemini-3-flash-preview as the optimal model for basic text and JSON tasks.
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image } },
-          { text: "Identifikasi barang bekas ini dan berikan 3 ide daur ulang. Berikan respon dalam JSON murni Bahasa Indonesia. Struktur: { \"itemName\": string, \"materialType\": string, \"difficulty\": \"Mudah\"|\"Sedang\"|\"Sulit\", \"estimatedPoints\": number, \"co2Impact\": number, \"diyIdeas\": [ { \"title\": string, \"description\": string, \"timeEstimate\": string, \"toolsNeeded\": string[], \"steps\": string[] } ] }" }
+          { text: "Identifikasi barang ini. Berikan 3 ide daur ulang kreatif. Balas dalam JSON murni Bahasa Indonesia. Struktur: { \"itemName\": string, \"materialType\": string, \"difficulty\": \"Mudah\"|\"Sedang\", \"estimatedPoints\": 20, \"co2Impact\": 500, \"diyIdeas\": [ { \"title\": string, \"description\": string, \"timeEstimate\": string, \"toolsNeeded\": string[], \"steps\": string[] } ] }" }
         ],
       },
       config: {
@@ -59,14 +62,14 @@ export const analyzeImage = async (base64Image: string): Promise<RecyclingRecomm
       }
     });
 
+    // Extracting text output: always use the .text property (not a method).
     const rawText = response.text;
-    if (!rawText) throw new Error("Gagal menerima data dari AI.");
+    if (!rawText) throw new Error("AI tidak merespon tepat waktu.");
 
     const cleanedText = cleanJsonResponse(rawText);
     const recommendation: RecyclingRecommendation = JSON.parse(cleanedText);
     
-    // OPTIMASI: Gunakan placeholder gambar agar hasil muncul INSTAN.
-    // Menghapus generateDIYImage di sini karena membuat proses sangat lambat (30 detik+).
+    // Enrich the result with placeholder images for a better user experience.
     const ideasWithImages = recommendation.diyIdeas.map((idea) => ({
       ...idea,
       imageUrl: `https://picsum.photos/seed/${encodeURIComponent(idea.title)}/600/400`
@@ -75,11 +78,6 @@ export const analyzeImage = async (base64Image: string): Promise<RecyclingRecomm
     return { ...recommendation, diyIdeas: ideasWithImages };
   } catch (error: any) {
     console.error("ANALYSIS FAILED:", error);
-    throw new Error(`Koneksi AI terputus atau API Key bermasalah. (${error.message?.substring(0, 50)})`);
+    throw new Error(error.message || "Gagal menghubungkan ke server AI.");
   }
-};
-
-// Fungsi ini tetap ada untuk kebutuhan mendatang, tapi tidak dipanggil di alur utama agar cepat.
-export const generateDIYImage = async (prompt: string): Promise<string> => {
-  return `https://picsum.photos/seed/${encodeURIComponent(prompt)}/600/400`;
 };
