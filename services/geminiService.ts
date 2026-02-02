@@ -2,7 +2,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { RecyclingRecommendation } from "../types";
 
-// Helper function to clean potential markdown from JSON response
 const cleanJsonResponse = (text: string): string => {
   return text
     .replace(/```json/g, "")
@@ -11,25 +10,21 @@ const cleanJsonResponse = (text: string): string => {
     .trim();
 };
 
+// Fungsi utama: Menganalisis gambar dan memberikan ide teks (Sangat Cepat)
 export const analyzeImage = async (base64Image: string): Promise<RecyclingRecommendation> => {
-  // Ensure the API key is available as per guidelines.
   const apiKey = process.env.API_KEY;
-  
-  if (!apiKey) {
-    throw new Error("API_KEY belum terpasang di environment variables.");
-  }
+  if (!apiKey) throw new Error("API_KEY belum terpasang.");
 
   try {
-    // Correct initialization: always use new GoogleGenAI({ apiKey: process.env.API_KEY }).
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
     
-    // Use gemini-3-flash-preview as the optimal model for basic text and JSON tasks.
+    // Gunakan gemini-3-flash-preview untuk kecepatan JSON maksimal
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image } },
-          { text: "Identifikasi barang ini. Berikan 3 ide daur ulang kreatif. Balas dalam JSON murni Bahasa Indonesia. Struktur: { \"itemName\": string, \"materialType\": string, \"difficulty\": \"Mudah\"|\"Sedang\", \"estimatedPoints\": 20, \"co2Impact\": 500, \"diyIdeas\": [ { \"title\": string, \"description\": string, \"timeEstimate\": string, \"toolsNeeded\": string[], \"steps\": string[] } ] }" }
+          { text: "Identifikasi barang ini. Berikan 3 ide daur ulang kreatif. Balas dalam JSON murni Bahasa Indonesia. Struktur: { \"itemName\": string, \"materialType\": string, \"difficulty\": \"Mudah\"|\"Sedang\", \"estimatedPoints\": number, \"co2Impact\": number, \"diyIdeas\": [ { \"title\": string, \"description\": string, \"timeEstimate\": string, \"toolsNeeded\": string[], \"steps\": string[] } ] }" }
         ],
       },
       config: {
@@ -62,22 +57,46 @@ export const analyzeImage = async (base64Image: string): Promise<RecyclingRecomm
       }
     });
 
-    // Extracting text output: always use the .text property (not a method).
     const rawText = response.text;
-    if (!rawText) throw new Error("AI tidak merespon tepat waktu.");
-
+    if (!rawText) throw new Error("Gagal menerima data dari AI.");
     const cleanedText = cleanJsonResponse(rawText);
-    const recommendation: RecyclingRecommendation = JSON.parse(cleanedText);
-    
-    // Enrich the result with placeholder images for a better user experience.
-    const ideasWithImages = recommendation.diyIdeas.map((idea) => ({
-      ...idea,
-      imageUrl: `https://picsum.photos/seed/${encodeURIComponent(idea.title)}/600/400`
-    }));
-
-    return { ...recommendation, diyIdeas: ideasWithImages };
+    return JSON.parse(cleanedText);
   } catch (error: any) {
     console.error("ANALYSIS FAILED:", error);
-    throw new Error(error.message || "Gagal menghubungkan ke server AI.");
+    throw new Error(error.message || "Koneksi AI terputus.");
+  }
+};
+
+// Fungsi pendukung: Membuat visual nyata untuk setiap ide DIY secara terpisah
+export const generateDIYImage = async (ideaTitle: string, originalItem: string): Promise<string> => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) return `https://picsum.photos/seed/${encodeURIComponent(ideaTitle)}/600/400`;
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          { text: `A beautiful and realistic photo of a finished DIY recycling project: ${ideaTitle}, made from ${originalItem}. High quality, clean background, 4k resolution.` },
+        ],
+      },
+      config: {
+        imageConfig: { aspectRatio: "16:9" }
+      }
+    });
+
+    // Cari part gambar dalam response
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
+      }
+    }
+    
+    // Fallback jika gagal generate gambar spesifik
+    return `https://picsum.photos/seed/${encodeURIComponent(ideaTitle)}/600/400`;
+  } catch (err) {
+    console.error("Image gen failed:", err);
+    return `https://picsum.photos/seed/${encodeURIComponent(ideaTitle)}/600/400`;
   }
 };
