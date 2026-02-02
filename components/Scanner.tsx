@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Cropper from 'react-easy-crop';
 import { analyzeImage } from '../services/geminiService';
 import { RecyclingRecommendation, UserProfile, CommunityPost, DIYIdea } from '../types';
@@ -117,7 +117,10 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
     try {
       const croppedBase64 = await getCroppedImg(tempImage, croppedAreaPixels);
       setImage(croppedBase64);
+      
+      // Analisis gambar
       const data = await analyzeImage(croppedBase64.split(',')[1]);
+      
       setResult(data);
       saveScanToHistory(data);
       setHistory(getScanHistory());
@@ -127,7 +130,10 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
         onPointsUpdate(updatedUser);
       }
     } catch (error: any) {
-      alert(error.message);
+      console.error("Scanner Error:", error);
+      alert(error.message || "Gagal memproses gambar.");
+      // Reset state jika gagal agar tidak stuck loading
+      setImage(null);
     } finally {
       setLoading(false);
     }
@@ -264,6 +270,10 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
                   </div>
                 </div>
               )}
+              {/* Tombol Reset jika macet */}
+              {!loading && image && !result && (
+                <button onClick={() => { setImage(null); startCamera(); }} className="w-full py-4 text-slate-400 font-bold uppercase text-xs tracking-widest">Coba Foto Ulang</button>
+              )}
             </div>
           )}
         </>
@@ -282,6 +292,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
         </div>
       )}
 
+      {/* Workshop Overlay */}
       {selectedTutorial && (
         <div className="fixed inset-0 z-[600] bg-white dark:bg-slate-950 flex flex-col animate-in slide-in-from-right duration-300">
            <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 sticky top-0 z-10 flex flex-col space-y-4 shadow-sm">
