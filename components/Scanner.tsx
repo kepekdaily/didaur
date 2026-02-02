@@ -1,7 +1,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Cropper from 'react-easy-crop';
-import { analyzeImage } from '../services/geminiService';
+import { analyzeImage, generateDIYImage } from '../services/geminiService';
 import { RecyclingRecommendation, UserProfile, CommunityPost, DIYIdea } from '../types';
 import { updateUserPoints, saveScanToHistory, getScanHistory, saveCommunityPost } from '../utils/storage';
 
@@ -28,16 +28,18 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
   const [tempImage, setTempImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RecyclingRecommendation | null>(null);
-  const [isCameraActive, setIsCameraActive] = useState(false);
   const [activeTab, setActiveTab] = useState<'Scan' | 'Riwayat'>('Scan');
   const [history, setHistory] = useState<RecyclingRecommendation[]>(getScanHistory());
   const [isCropping, setIsCropping] = useState(false);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+  
+  const [ideaImages, setIdeaImages] = useState<Record<number, string>>({});
   const [selectedTutorial, setSelectedTutorial] = useState<DIYIdea | null>(null);
   const [currentStep, setCurrentStep] = useState<number>(0); 
   const [completionPhoto, setCompletionPhoto] = useState<string | null>(null);
+  const [isCameraActive, setIsCameraActive] = useState(false);
   const [isCompletionCameraActive, setIsCompletionCameraActive] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -96,14 +98,15 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
     }
   };
 
+  // Add handleFileChange to handle image selection from gallery
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setTempImage(reader.result as string);
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        setTempImage(dataUrl);
         setIsCropping(true);
-        stopCamera();
       };
       reader.readAsDataURL(file);
     }
@@ -113,32 +116,28 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
     if (!tempImage || !croppedAreaPixels) return;
     setLoading(true);
     setIsCropping(false);
-    
-    // Timeout Guard: Vercel Free memiliki limit 10s. Kita set 15s di client.
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("Timeout: Proses analisis terlalu lama. Silakan coba lagi.")), 15000)
-    );
+    setIdeaImages({}); // Reset images
 
     try {
       const croppedBase64 = await getCroppedImg(tempImage, croppedAreaPixels);
       setImage(croppedBase64);
       
-      // Gunakan Promise.race untuk mencegah stuck loading selamanya
-      const data = await Promise.race([
-        analyzeImage(croppedBase64.split(',')[1]),
-        timeoutPromise
-      ]) as RecyclingRecommendation;
-      
+      const data = await analyzeImage(croppedBase64.split(',')[1]);
       setResult(data);
       saveScanToHistory(data);
       setHistory(getScanHistory());
       
       const updatedUser: UserProfile | null = await updateUserPoints(20, data.co2Impact, true);
       if (updatedUser) onPointsUpdate(updatedUser);
+
+      // ASYNC IMAGE GENERATION: Mulai buat gambar satu persatu agar tidak stuck
+      data.diyIdeas.forEach(async (idea, idx) => {
+        const imgUrl = await generateDIYImage(idea.title, data.itemName);
+        setIdeaImages(prev => ({ ...prev, [idx]: imgUrl }));
+      });
+
     } catch (error: any) {
-      console.error("Scanner Error:", error);
       alert(error.message || "Gagal memproses gambar.");
-      setResult(null);
       setImage(null);
     } finally {
       setLoading(false);
@@ -154,14 +153,14 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
         userName: updatedUser.name,
         userAvatar: updatedUser.avatar,
         itemName: `Berhasil DIY: ${selectedTutorial.title}`,
-        description: `Proyek ini berhasil saya selesaikan dari bahan ${result.itemName}!`,
+        description: `Saya berhasil mengubah ${result.itemName} menjadi karya ini!`,
         imageUrl: completionPhoto,
         timestamp: Date.now(),
         pointsEarned: 250,
         materialTag: result.materialType
       };
       await saveCommunityPost(post);
-      alert("🎉 Proyek selesai! +250 XP didapatkan!");
+      alert("🎉 Proyek Selesai! +250 XP diklaim.");
       setSelectedTutorial(null);
       setCompletionPhoto(null);
       setCurrentStep(0);
@@ -174,7 +173,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
     <div className="flex flex-col space-y-4 p-4 animate-in fade-in duration-500 min-h-screen">
       <div className="flex bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl w-max mx-auto mb-4 shadow-inner">
          {['Scan', 'Riwayat'].map(t => (
-           <button key={t} onClick={() => setActiveTab(t as any)} className={`px-8 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === t ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-sm' : 'text-slate-400 dark:text-slate-600'}`}>{t}</button>
+           <button key={t} onClick={() => { setActiveTab(t as any); if(t === 'Riwayat') { setHistory(getScanHistory()); } }} className={`px-8 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === t ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-sm' : 'text-slate-400 dark:text-slate-600'}`}>{t}</button>
          ))}
       </div>
 
@@ -182,9 +181,9 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
         <>
           {!isCameraActive && !image && !isCropping ? (
             <div className="space-y-8 pt-10 text-center flex flex-col items-center">
-              <div className="px-8 max-w-sm">
+              <div className="px-8 max-sm">
                 <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">Ubah Sampah Jadi Berharga</h1>
-                <p className="text-slate-500 dark:text-slate-400 mt-4 font-medium text-sm">Ambil foto barang bekas, biarkan AI memandu Anda.</p>
+                <p className="text-slate-500 dark:text-slate-400 mt-4 font-medium text-sm">Ambil foto barang bekas, biarkan AI memberi ide.</p>
               </div>
               <div className="grid grid-cols-2 gap-6 w-full max-w-sm">
                 <div onClick={() => startCamera()} className="aspect-square cursor-pointer group">
@@ -220,7 +219,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
             <div className="fixed inset-0 z-[500] bg-slate-950 flex flex-col">
               <div className="relative flex-1 bg-black"><Cropper image={tempImage!} crop={crop} zoom={zoom} aspect={1} onCropChange={setCrop} onZoomChange={setZoom} onCropComplete={(_c, p) => setCroppedAreaPixels(p)} /></div>
               <div className="p-10 bg-slate-950/90 backdrop-blur-md z-10 space-y-6">
-                <button onClick={handleCropConfirm} className="w-full bg-green-600 text-white py-5 rounded-[2.5rem] font-black shadow-xl tracking-widest uppercase text-sm">PROSES DETEKSI AI</button>
+                <button onClick={handleCropConfirm} className="w-full bg-green-600 text-white py-5 rounded-[2.5rem] font-black shadow-xl tracking-widest uppercase text-sm">ANALISIS DENGAN AI</button>
               </div>
             </div>
           ) : (
@@ -230,8 +229,8 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
                 {loading && (
                   <div className="absolute inset-0 bg-black/80 backdrop-blur-xl flex flex-col items-center justify-center p-8 text-center text-white">
                      <div className="w-20 h-20 border-4 border-white/20 border-t-green-500 rounded-full animate-spin mb-6"></div>
-                     <h2 className="text-xl font-black mb-2">Menganalisis Material...</h2>
-                     <p className="text-xs font-bold text-slate-400 px-4">AI sedang bekerja. Ini mungkin butuh waktu beberapa detik.</p>
+                     <h2 className="text-xl font-black mb-2">Mengidentifikasi...</h2>
+                     <p className="text-xs font-bold text-slate-400">Sedang mengenali material dan mencari ide terbaik.</p>
                   </div>
                 )}
               </div>
@@ -251,15 +250,22 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
                     <div className="grid gap-6">
                       {result.diyIdeas.map((idea, idx) => (
                         <div key={idx} className="bg-white dark:bg-slate-900 rounded-[3rem] p-6 border border-slate-100 dark:border-slate-800 space-y-5 shadow-sm group">
-                          <div className="relative overflow-hidden rounded-[2rem] aspect-[16/10]">
-                             <img src={idea.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                          <div className="relative overflow-hidden rounded-[2rem] aspect-[16/10] bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                             {ideaImages[idx] ? (
+                               <img src={ideaImages[idx]} className="w-full h-full object-cover animate-in fade-in duration-1000" />
+                             ) : (
+                               <div className="flex flex-col items-center space-y-2 opacity-40">
+                                 <div className="w-8 h-8 border-2 border-slate-400 border-t-green-500 rounded-full animate-spin"></div>
+                                 <span className="text-[8px] font-black uppercase tracking-widest">Membuat Gambar AI...</span>
+                               </div>
+                             )}
                           </div>
                           <div>
                             <h4 className="text-xl font-black text-slate-900 dark:text-white">{idea.title}</h4>
                             <p className="text-sm text-slate-500 mt-2 line-clamp-2 leading-relaxed font-medium">{idea.description}</p>
                           </div>
                           <button 
-                            onClick={() => { setSelectedTutorial(idea); setCurrentStep(-1); }}
+                            onClick={() => { setSelectedTutorial({ ...idea, imageUrl: ideaImages[idx] }); setCurrentStep(-1); }}
                             className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-5 rounded-[2rem] font-black text-[10px] uppercase tracking-[0.2em] active:scale-95 transition-all shadow-lg"
                           >
                             LIHAT PANDUAN KERJA
@@ -268,10 +274,8 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
                       ))}
                     </div>
                   </div>
+                  <button onClick={() => { setImage(null); setResult(null); startCamera(); }} className="w-full py-4 text-slate-400 font-bold uppercase text-xs tracking-widest">Mulai Scan Baru</button>
                 </div>
-              )}
-              {!loading && image && !result && (
-                <button onClick={() => { setImage(null); startCamera(); }} className="w-full py-4 text-slate-400 font-bold uppercase text-xs tracking-widest">Coba Foto Ulang</button>
               )}
             </div>
           )}
@@ -279,7 +283,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
       ) : (
         <div className="space-y-4 pb-24 max-w-md mx-auto w-full">
            {history.length > 0 ? history.map((item, idx) => (
-             <div key={idx} onClick={() => { setResult(item); setImage(item.diyIdeas[0]?.imageUrl || ""); setActiveTab('Scan'); }} className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 flex items-center space-x-5 cursor-pointer active:scale-95 transition-all">
+             <div key={idx} onClick={() => { setResult(item); setImage(null); setActiveTab('Scan'); }} className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 flex items-center space-x-5 cursor-pointer active:scale-95 transition-all">
                 <div className="w-14 h-14 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center text-3xl">📦</div>
                 <div className="flex-1">
                    <h4 className="font-black text-slate-800 dark:text-slate-100">{item.itemName}</h4>
@@ -291,50 +295,79 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
         </div>
       )}
 
-      {/* Tutorial Workshop Overlay - No major changes here */}
       {selectedTutorial && (
         <div className="fixed inset-0 z-[600] bg-white dark:bg-slate-950 flex flex-col animate-in slide-in-from-right duration-300">
-           {/* ... existing workshop content ... */}
            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-              <button onClick={() => setSelectedTutorial(null)} className="text-slate-400">✕ Tutup</button>
+              <button onClick={() => { stopCamera(); setSelectedTutorial(null); }} className="text-slate-400">✕ Tutup</button>
               <h4 className="text-xs font-black uppercase tracking-widest">Workshop Kreatif</h4>
               <div className="w-10"></div>
            </div>
-           <div className="flex-1 p-8 overflow-y-auto">
-              <h2 className="text-2xl font-black mb-4">{selectedTutorial.title}</h2>
+           <div className="flex-1 p-8 overflow-y-auto no-scrollbar">
+              <h2 className="text-3xl font-black mb-6 leading-tight">{selectedTutorial.title}</h2>
               {currentStep === -1 ? (
-                <div className="space-y-6">
-                  <p className="font-bold text-slate-500">Alat yang dibutuhkan:</p>
-                  <ul className="space-y-2">
-                    {selectedTutorial.toolsNeeded.map((t, i) => <li key={i} className="p-4 bg-slate-50 dark:bg-slate-900 rounded-xl font-bold">🛠️ {t}</li>)}
-                  </ul>
-                  <button onClick={() => setCurrentStep(0)} className="w-full bg-green-600 text-white py-5 rounded-2xl font-black">MULAI SEKARANG</button>
+                <div className="space-y-8 animate-in fade-in duration-500">
+                   <div className="rounded-[2.5rem] overflow-hidden aspect-video shadow-xl">
+                      <img src={selectedTutorial.imageUrl || `https://picsum.photos/seed/${selectedTutorial.title}/600/400`} className="w-full h-full object-cover" />
+                   </div>
+                   <div className="space-y-4">
+                      <h3 className="font-black text-slate-900 dark:text-white uppercase tracking-widest text-[10px]">Alat yang dibutuhkan:</h3>
+                      <div className="grid gap-2">
+                        {selectedTutorial.toolsNeeded.map((t, i) => (
+                          <div key={i} className="p-5 bg-slate-50 dark:bg-slate-900 rounded-2xl font-bold flex items-center space-x-3">
+                            <span className="w-8 h-8 bg-white dark:bg-slate-800 rounded-lg flex items-center justify-center shadow-sm">🛠️</span>
+                            <span>{t}</span>
+                          </div>
+                        ))}
+                      </div>
+                   </div>
+                   <button onClick={() => setCurrentStep(0)} className="w-full bg-green-600 text-white py-6 rounded-[2.5rem] font-black shadow-xl uppercase tracking-widest text-sm">SAYA SIAP, MULAI!</button>
                 </div>
               ) : currentStep < selectedTutorial.steps.length ? (
-                <div className="space-y-6">
-                  <div className="w-16 h-16 bg-green-600 text-white rounded-2xl flex items-center justify-center text-2xl font-black mx-auto">{currentStep+1}</div>
-                  <p className="text-xl font-bold text-center leading-relaxed">{selectedTutorial.steps[currentStep]}</p>
-                  <div className="flex space-x-2">
-                     <button onClick={() => setCurrentStep(prev => prev - 1)} className="flex-1 bg-slate-100 dark:bg-slate-800 py-5 rounded-2xl font-black">Kembali</button>
-                     <button onClick={() => setCurrentStep(prev => prev + 1)} className="flex-[2] bg-green-600 text-white py-5 rounded-2xl font-black">Lanjut</button>
-                  </div>
+                <div key={currentStep} className="h-full flex flex-col items-center justify-center animate-in slide-in-from-right duration-500 space-y-10 py-10">
+                   <div className="w-24 h-24 bg-green-600 text-white rounded-[2rem] flex flex-col items-center justify-center shadow-2xl">
+                      <span className="text-[10px] font-black opacity-60 uppercase">Tahap</span>
+                      <span className="text-4xl font-black">{currentStep + 1}</span>
+                   </div>
+                   <p className="text-2xl font-black text-center leading-relaxed text-slate-900 dark:text-white px-4">
+                     {selectedTutorial.steps[currentStep]}
+                   </p>
+                   <div className="flex w-full space-x-4">
+                      <button onClick={() => setCurrentStep(prev => prev - 1)} className="flex-1 bg-slate-100 dark:bg-slate-800 py-5 rounded-2xl font-black text-slate-400">Kembali</button>
+                      <button onClick={() => setCurrentStep(prev => prev + 1)} className="flex-[2] bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-5 rounded-2xl font-black shadow-lg">Lanjutkan</button>
+                   </div>
                 </div>
               ) : (
-                <div className="text-center space-y-8">
-                  <div className="text-6xl">🏆</div>
-                  <h3 className="text-2xl font-black">Proyek Selesai!</h3>
-                  <p className="text-slate-500">Ambil foto hasil karyamu untuk mendapatkan poin.</p>
-                  {!completionPhoto ? (
-                    <button onClick={() => startCamera(true)} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-5 rounded-2xl font-black">AMBIL FOTO VERIFIKASI</button>
-                  ) : (
-                    <button onClick={handleFinishTutorial} className="w-full bg-green-600 text-white py-5 rounded-2xl font-black">KLAIM 250 XP</button>
-                  )}
-                  {isCompletionCameraActive && (
-                    <div className="fixed inset-0 z-[700] bg-black">
-                       <video ref={completionVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
-                       <button onClick={() => handleCapture(true)} className="absolute bottom-10 left-1/2 -translate-x-1/2 w-20 h-20 bg-white rounded-full border-8 border-green-600"></button>
-                    </div>
-                  )}
+                <div className="text-center space-y-10 py-10 animate-in zoom-in duration-500">
+                   <div className="text-7xl">🏆</div>
+                   <div className="space-y-2">
+                      <h3 className="text-4xl font-black text-slate-900 dark:text-white">Proyek Selesai!</h3>
+                      <p className="text-slate-500 font-bold">Ambil foto hasil karyamu untuk klaim poin bonus.</p>
+                   </div>
+                   
+                   {!completionPhoto ? (
+                     <div className="space-y-6">
+                        <div className="relative aspect-square rounded-[3rem] overflow-hidden bg-black border-4 border-white dark:border-slate-800 shadow-2xl">
+                           {isCompletionCameraActive ? (
+                             <video ref={completionVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                           ) : (
+                             <div className="w-full h-full flex items-center justify-center text-slate-600">
+                               <span className="text-5xl">📷</span>
+                             </div>
+                           )}
+                        </div>
+                        {isCompletionCameraActive ? (
+                           <button onClick={() => handleCapture(true)} className="w-20 h-20 bg-white border-8 border-green-600 rounded-full shadow-2xl mx-auto"></button>
+                        ) : (
+                           <button onClick={() => startCamera(true)} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-6 rounded-[2.5rem] font-black uppercase tracking-widest text-xs">BUKA KAMERA VERIFIKASI</button>
+                        )}
+                     </div>
+                   ) : (
+                     <div className="space-y-6">
+                        <img src={completionPhoto} className="w-full aspect-square object-cover rounded-[3rem] shadow-2xl border-8 border-green-500/20" />
+                        <button onClick={handleFinishTutorial} className="w-full bg-green-600 text-white py-6 rounded-[2.5rem] font-black shadow-xl uppercase tracking-widest text-sm">KLAIM 250 XP & BAGIKAN</button>
+                        <button onClick={() => setCompletionPhoto(null)} className="text-slate-400 font-black uppercase text-[10px] tracking-widest">Foto Ulang</button>
+                     </div>
+                   )}
                 </div>
               )}
            </div>
