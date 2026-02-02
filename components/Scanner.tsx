@@ -15,7 +15,7 @@ const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<string> 
   canvas.width = pixelCrop.width;
   canvas.height = pixelCrop.height;
   ctx.drawImage(image, pixelCrop.x, pixelCrop.y, pixelCrop.width, pixelCrop.height, 0, 0, pixelCrop.width, pixelCrop.height);
-  return canvas.toDataURL('image/jpeg');
+  return canvas.toDataURL('image/jpeg', 0.8); // Kompresi sedikit untuk hemat storage
 };
 
 interface ScannerProps {
@@ -85,7 +85,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(targetVideo, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg');
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
         if (isCompletion) {
           setCompletionPhoto(dataUrl);
           stopCamera();
@@ -98,7 +98,6 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
     }
   };
 
-  // Add handleFileChange to handle image selection from gallery
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -116,32 +115,79 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
     if (!tempImage || !croppedAreaPixels) return;
     setLoading(true);
     setIsCropping(false);
-    setIdeaImages({}); // Reset images
+    setIdeaImages({});
+    setResult(null);
 
     try {
       const croppedBase64 = await getCroppedImg(tempImage, croppedAreaPixels);
       setImage(croppedBase64);
       
-      const data = await analyzeImage(croppedBase64.split(',')[1]);
-      setResult(data);
-      saveScanToHistory(data);
+      // Timeout guard 15 detik
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout: Analisis terlalu lama.")), 15000));
+      const data = await Promise.race([
+        analyzeImage(croppedBase64.split(',')[1]),
+        timeoutPromise
+      ]) as RecyclingRecommendation;
+
+      const finalData = { ...data, originalImage: croppedBase64, timestamp: Date.now() };
+      setResult(finalData);
+      saveScanToHistory(finalData);
       setHistory(getScanHistory());
       
       const updatedUser: UserProfile | null = await updateUserPoints(20, data.co2Impact, true);
       if (updatedUser) onPointsUpdate(updatedUser);
 
-      // ASYNC IMAGE GENERATION: Mulai buat gambar satu persatu agar tidak stuck
-      data.diyIdeas.forEach(async (idea, idx) => {
-        const imgUrl = await generateDIYImage(idea.title, data.itemName);
-        setIdeaImages(prev => ({ ...prev, [idx]: imgUrl }));
+      // Generate visual asinkron agar UI tidak freeze
+      finalData.diyIdeas.forEach(async (idea, idx) => {
+        try {
+          const imgUrl = await generateDIYImage(idea.title, finalData.itemName);
+          setIdeaImages(prev => ({ ...prev, [idx]: imgUrl }));
+          // Update history with generated images for next time
+          updateHistoryItemImage(finalData.timestamp!, idx, imgUrl);
+        } catch (e) {
+          console.error("Gagal generate gambar untuk ide", idx);
+        }
       });
 
     } catch (error: any) {
-      alert(error.message || "Gagal memproses gambar.");
+      alert(error.message || "Gagal memproses gambar. Coba lagi.");
       setImage(null);
     } finally {
       setLoading(false);
     }
+  };
+
+  const updateHistoryItemImage = (timestamp: number, ideaIdx: number, imageUrl: string) => {
+    const currentHistory = getScanHistory();
+    const itemIdx = currentHistory.findIndex(h => h.timestamp === timestamp);
+    if (itemIdx !== -1) {
+      currentHistory[itemIdx].diyIdeas[ideaIdx].imageUrl = imageUrl;
+      localStorage.setItem('didaur_history_v5', JSON.stringify(currentHistory));
+      setHistory(currentHistory);
+    }
+  };
+
+  const handleSelectFromHistory = (item: RecyclingRecommendation) => {
+    setResult(item);
+    setImage(item.originalImage || null);
+    
+    // Load existing images from the history object
+    const existingImages: Record<number, string> = {};
+    item.diyIdeas.forEach((idea, idx) => {
+      if (idea.imageUrl) existingImages[idx] = idea.imageUrl;
+    });
+    setIdeaImages(existingImages);
+    
+    // If some images are missing, trigger generation
+    item.diyIdeas.forEach(async (idea, idx) => {
+      if (!idea.imageUrl) {
+        const imgUrl = await generateDIYImage(idea.title, item.itemName);
+        setIdeaImages(prev => ({ ...prev, [idx]: imgUrl }));
+        updateHistoryItemImage(item.timestamp!, idx, imgUrl);
+      }
+    });
+
+    setActiveTab('Scan');
   };
 
   const handleFinishTutorial = async () => {
@@ -230,7 +276,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
                   <div className="absolute inset-0 bg-black/80 backdrop-blur-xl flex flex-col items-center justify-center p-8 text-center text-white">
                      <div className="w-20 h-20 border-4 border-white/20 border-t-green-500 rounded-full animate-spin mb-6"></div>
                      <h2 className="text-xl font-black mb-2">Mengidentifikasi...</h2>
-                     <p className="text-xs font-bold text-slate-400">Sedang mengenali material dan mencari ide terbaik.</p>
+                     <p className="text-xs font-bold text-slate-400 px-6">AI sedang mencari ide daur ulang paling keren untuk Anda.</p>
                   </div>
                 )}
               </div>
@@ -283,15 +329,29 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
       ) : (
         <div className="space-y-4 pb-24 max-w-md mx-auto w-full">
            {history.length > 0 ? history.map((item, idx) => (
-             <div key={idx} onClick={() => { setResult(item); setImage(null); setActiveTab('Scan'); }} className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 flex items-center space-x-5 cursor-pointer active:scale-95 transition-all">
-                <div className="w-14 h-14 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center text-3xl">📦</div>
-                <div className="flex-1">
-                   <h4 className="font-black text-slate-800 dark:text-slate-100">{item.itemName}</h4>
-                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{item.materialType}</p>
+             <div key={idx} onClick={() => handleSelectFromHistory(item)} className="bg-white dark:bg-slate-900 p-4 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 flex items-center space-x-5 cursor-pointer active:scale-95 transition-all">
+                <div className="w-20 h-20 bg-slate-50 dark:bg-slate-800 rounded-2xl overflow-hidden shadow-sm">
+                   {item.originalImage ? (
+                     <img src={item.originalImage} className="w-full h-full object-cover" />
+                   ) : (
+                     <div className="w-full h-full flex items-center justify-center text-2xl">📦</div>
+                   )}
                 </div>
-                <div className="text-green-600 font-black">+{item.estimatedPoints}</div>
+                <div className="flex-1">
+                   <h4 className="font-black text-slate-800 dark:text-slate-100 line-clamp-1">{item.itemName}</h4>
+                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{item.materialType}</p>
+                   <p className="text-[8px] text-slate-300 font-bold mt-1">
+                     {item.timestamp ? new Date(item.timestamp).toLocaleDateString('id-ID') : 'Sesaat lalu'}
+                   </p>
+                </div>
+                <div className="text-green-600 font-black px-2">+{item.estimatedPoints}</div>
              </div>
-           )) : <p className="text-center py-20 text-slate-400 font-black text-xs uppercase tracking-widest">Belum ada riwayat scan.</p>}
+           )) : (
+             <div className="text-center py-24 space-y-4">
+                <span className="text-5xl opacity-20 grayscale">♻️</span>
+                <p className="text-slate-400 font-black text-xs uppercase tracking-widest">Belum ada riwayat scan.</p>
+             </div>
+           )}
         </div>
       )}
 
