@@ -18,52 +18,78 @@ const App = () => {
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
-    // 1. Cek Sesi Saat Ini
+    // 1. Cek Sesi Saat Ini pada saat awal muat
     const initApp = async () => {
       try {
         const savedUser = await getCurrentUser();
         if (savedUser) {
           setUser(savedUser);
-          setActiveTab(AppTab.HOME);
         }
       } catch (e) {
-        console.error("Gagal memuat profil:", e);
+        console.error("Gagal memuat profil awal:", e);
       } finally {
         setIsInitialized(true);
       }
     };
     initApp();
 
-    // 2. Listener Perubahan Auth (Menangani Google & OTP Sukses)
+    // 2. Listener Perubahan Auth (Menangani Google, OTP, & Logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth Event:", event);
+      console.log("Auth Event Terdeteksi:", event);
+      
       if (session) {
+        // Coba ambil profil dari database
         let profile = await fetchProfile(session.user.id);
         
-        // JIKA profil belum ada (biasanya terjadi pada login Google pertama kali atau verifikasi OTP baru)
-        if (!profile && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
+        // JIKA profil belum ada (User baru dari OTP atau Google)
+        if (!profile) {
           const metadata = session.user.user_metadata;
-          const { error: profileError } = await supabase.from('profiles').upsert({
+          const newProfileData = {
             id: session.user.id,
             email: session.user.email,
-            name: metadata?.full_name || session.user.email?.split('@')[0] || 'Pejuang Daur',
-            avatar: metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${session.user.id}`,
+            name: metadata?.full_name || metadata?.name || session.user.email?.split('@')[0] || 'Pejuang Daur',
+            avatar: metadata?.avatar_url || metadata?.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${session.user.id}`,
             points: 100,
             rank: 'Pemula Hijau',
             items_scanned: 0,
-            total_co2_saved: 0
-          }, { onConflict: 'id' });
+            total_co2_saved: 0,
+            badges: []
+          };
+
+          // Simpan ke database
+          const { error: upsertError } = await supabase.from('profiles').upsert(newProfileData, { onConflict: 'id' });
           
-          if (!profileError) {
+          if (!upsertError) {
             profile = await fetchProfile(session.user.id);
+          } else {
+            console.error("Gagal membuat profil di DB:", upsertError);
+            // Fallback: Gunakan data lokal agar user tidak stuck di login
+            profile = {
+              id: newProfileData.id,
+              email: newProfileData.email || '',
+              name: newProfileData.name,
+              points: newProfileData.points,
+              rank: newProfileData.rank,
+              itemsScanned: 0,
+              plasticItemsScanned: 0,
+              commentsMade: 0,
+              creationsShared: 0,
+              totalCo2Saved: 0,
+              avatar: newProfileData.avatar,
+              badges: []
+            };
           }
         }
         
         if (profile) {
           setUser(profile);
-          setActiveTab(AppTab.HOME);
+          // Hanya pindahkan tab ke HOME jika event-nya adalah login baru
+          if (event === 'SIGNED_IN') {
+            setActiveTab(AppTab.HOME);
+          }
         }
       } else {
+        // Jika tidak ada sesi, pastikan user null
         setUser(null);
       }
     });
@@ -95,11 +121,12 @@ const App = () => {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50 dark:bg-slate-950">
         <div className="w-12 h-12 border-4 border-slate-200 border-t-green-600 rounded-full animate-spin"></div>
-        <p className="mt-6 font-black text-green-600 text-[11px] uppercase tracking-[0.3em] animate-pulse">Menghubungkan Akun...</p>
+        <p className="mt-6 font-black text-green-600 text-[10px] uppercase tracking-[0.3em] animate-pulse">Menghubungkan Sesi...</p>
       </div>
     );
   }
 
+  // Jika tidak ada user, tampilkan layar Auth
   if (!user) {
     return <Auth onAuthComplete={handleAuthComplete} isDarkMode={isDarkMode} />;
   }
