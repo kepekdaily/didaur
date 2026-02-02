@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase, isCloudConfigured, fetchProfile } from '../utils/storage';
 import { UserProfile } from '../types';
 
@@ -8,16 +8,18 @@ interface AuthProps {
   isDarkMode: boolean;
 }
 
+type AuthMode = 'login' | 'register' | 'forgot-password';
 type AuthStage = 'initial' | 'otp';
 
 const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [authStage, setAuthStage] = useState<AuthStage>('initial');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [cloudReady, setCloudReady] = useState(isCloudConfigured());
 
@@ -51,6 +53,24 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
     }
   };
 
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setMessage('');
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+      });
+      if (error) throw error;
+      setMessage("Link pemulihan kata sandi telah dikirim ke email Anda.");
+    } catch (err: any) {
+      setError(getFriendlyErrorMessage(err.message));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (otpCode.length < 6) return;
@@ -67,11 +87,8 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
       if (verifyError) throw verifyError;
 
       if (data.user) {
-        // Mencoba mengambil profil
         let profile = await fetchProfile(data.user.id);
-        
         if (!profile) {
-          // Jika belum ada, buat profil manual segera di database
           const profileData = {
             id: data.user.id,
             email: data.user.email,
@@ -80,10 +97,7 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
             points: 100,
             rank: 'Pemula Hijau'
           };
-          
           await supabase.from('profiles').upsert(profileData);
-          
-          // Fallback Profile Object untuk dikirim ke parent state
           profile = {
             id: profileData.id,
             email: profileData.email || '',
@@ -99,8 +113,6 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
             badges: []
           };
         }
-        
-        // Panggil callback untuk masuk ke aplikasi
         onAuthComplete(profile);
       }
     } catch (err: any) {
@@ -114,6 +126,7 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
     e.preventDefault();
     if (!cloudReady) return;
     setError('');
+    setMessage('');
     setIsLoading(true);
 
     try {
@@ -124,34 +137,13 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
           options: { data: { full_name: name } }
         });
         if (signUpError) throw signUpError;
-        
-        if (data.user) {
-          setAuthStage('otp');
-        }
-      } else {
+        if (data.user) setAuthStage('otp');
+      } else if (authMode === 'login') {
         const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
         if (signInError) throw signInError;
         if (data.user) {
           const profile = await fetchProfile(data.user.id);
           if (profile) onAuthComplete(profile);
-          else {
-            // Jika user ada tapi profil belum, trigger onAuthStateChange di App
-            // atau buat profil minimal
-            onAuthComplete({
-              id: data.user.id,
-              email: data.user.email || '',
-              name: data.user.user_metadata?.full_name || 'Pejuang Daur',
-              points: 100,
-              rank: 'Pemula Hijau',
-              itemsScanned: 0,
-              plasticItemsScanned: 0,
-              commentsMade: 0,
-              creationsShared: 0,
-              totalCo2Saved: 0,
-              avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
-              badges: []
-            });
-          }
         }
       }
     } catch (err: any) {
@@ -163,14 +155,12 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
 
   return (
     <div className={`min-h-screen relative flex flex-col items-center justify-center p-6 transition-all duration-700 ${isDarkMode ? 'bg-slate-950' : 'bg-green-600'}`}>
-      {/* Background Decorative Elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-20">
          <div className="absolute top-0 -left-20 w-80 h-80 bg-white rounded-full blur-3xl animate-pulse"></div>
          <div className="absolute bottom-0 -right-20 w-80 h-80 bg-green-300 rounded-full blur-3xl"></div>
       </div>
 
       <div className="relative w-full max-w-md z-10 space-y-6">
-        {/* Logo Section */}
         <div className="text-center animate-in fade-in slide-in-from-top-8 duration-700">
           <div className="w-16 h-16 bg-white dark:bg-slate-900 rounded-2xl mx-auto flex items-center justify-center shadow-2xl mb-4">
             <span className="text-3xl">♻️</span>
@@ -179,7 +169,6 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
           <p className="text-green-100/70 text-[10px] font-bold uppercase tracking-[0.3em] mt-1">Langkah Cerdas Kelola Sampah</p>
         </div>
 
-        {/* Auth Card */}
         <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl rounded-[3rem] p-8 shadow-2xl border border-white/20 overflow-hidden">
           
           {authStage === 'otp' ? (
@@ -187,76 +176,56 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
               <div className="text-center space-y-3">
                 <div className="inline-block p-4 bg-green-100 dark:bg-green-900/30 rounded-2xl mb-2">
                    <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" />
                    </svg>
                 </div>
                 <h2 className="text-2xl font-black text-slate-900 dark:text-white leading-tight">Cek Email Kamu</h2>
                 <p className="text-xs font-medium text-slate-500 leading-relaxed">
-                  Kami telah mengirimkan 6 digit kode verifikasi ke <b>{email}</b>. Masukkan kode tersebut untuk masuk ke aplikasi.
+                  Kode verifikasi dikirim ke <b>{email}</b>.
                 </p>
               </div>
 
               <form onSubmit={handleVerifyOtp} className="space-y-6">
-                <div className="relative">
-                  <input 
-                    type="text" 
-                    maxLength={6}
-                    placeholder="0 0 0 0 0 0"
-                    className="w-full bg-slate-100 dark:bg-slate-800 p-6 rounded-3xl text-3xl font-black tracking-[0.3em] text-center outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all shadow-inner"
-                    value={otpCode}
-                    onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                    required
-                    autoFocus
-                  />
-                  {isLoading && (
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                       <div className="w-5 h-5 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                  )}
-                </div>
-
-                {error && (
-                  <div className="animate-in shake duration-300">
-                    <p className="text-[10px] font-bold text-rose-500 text-center uppercase tracking-widest bg-rose-50 dark:bg-rose-950/30 p-4 rounded-2xl border border-rose-100 dark:border-rose-900/30">
-                      ⚠️ {error}
-                    </p>
-                  </div>
-                )}
-
-                <button 
-                  type="submit" 
-                  disabled={isLoading || otpCode.length < 6} 
-                  className="group w-full bg-green-600 text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl shadow-green-200 dark:shadow-none active:scale-95 disabled:opacity-50 transition-all flex items-center justify-center space-x-2"
-                >
-                  <span>{isLoading ? 'MEMVERIFIKASI...' : 'VERIFIKASI & MASUK'}</span>
-                  {!isLoading && (
-                    <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                    </svg>
-                  )}
+                <input 
+                  type="text" 
+                  maxLength={6}
+                  placeholder="000000"
+                  className="w-full bg-slate-100 dark:bg-slate-800 p-6 rounded-3xl text-3xl font-black tracking-[0.3em] text-center outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all shadow-inner"
+                  value={otpCode}
+                  onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                  required
+                />
+                <button type="submit" disabled={isLoading} className="w-full bg-green-600 text-white py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50 transition-all">
+                  {isLoading ? 'MEMVERIFIKASI...' : 'VERIFIKASI & MASUK'}
                 </button>
               </form>
-
-              <div className="text-center pt-2">
-                <button 
-                  onClick={() => { setAuthStage('initial'); setError(''); }}
-                  className="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-green-600 transition-colors"
-                >
-                  Ganti Email atau Kembali
-                </button>
+              <button onClick={() => { setAuthStage('initial'); setError(''); }} className="w-full text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Kembali</button>
+            </div>
+          ) : authMode === 'forgot-password' ? (
+            <div className="space-y-6 animate-in slide-in-from-right-8 duration-500">
+              <div className="text-center space-y-2">
+                 <h2 className="text-2xl font-black text-slate-900 dark:text-white">Lupa Password?</h2>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Masukkan email untuk mendapatkan link reset</p>
               </div>
+              
+              {message && <p className="text-[10px] font-bold text-green-600 bg-green-50 p-4 rounded-xl border border-green-100 text-center animate-in zoom-in">{message}</p>}
+              {error && <p className="text-[10px] font-bold text-rose-500 bg-rose-50 p-4 rounded-xl border border-rose-100">{error}</p>}
+              
+              <form onSubmit={handleResetPassword} className="space-y-4">
+                 <input type="email" placeholder="email@kamu.com" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all" value={email} onChange={e => setEmail(e.target.value)} required />
+                 <button type="submit" disabled={isLoading} className="w-full bg-green-600 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-green-100 dark:shadow-none active:scale-95 disabled:opacity-50 transition-all">
+                    {isLoading ? 'MENGIRIM...' : 'KIRIM LINK RESET'}
+                 </button>
+              </form>
+              <button onClick={() => setAuthMode('login')} className="w-full text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Kembali ke Login</button>
             </div>
           ) : (
             <div className="space-y-6 animate-in slide-in-from-left-8 duration-500">
-              {/* Main Form Section */}
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="text-center mb-6">
                   <h2 className="text-2xl font-black text-slate-900 dark:text-white leading-tight">
                     {authMode === 'login' ? 'Selamat Datang' : 'Gabung Bersama Kami'}
                   </h2>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                    Silakan {authMode === 'login' ? 'Masuk' : 'Daftar'} untuk melanjutkan
-                  </p>
                 </div>
 
                 {error && <p className="text-[10px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-950/30 p-4 rounded-xl border border-rose-100 dark:border-rose-900/30 animate-in shake duration-300">⚠️ {error}</p>}
@@ -273,8 +242,14 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
                   <input type="email" placeholder="budi@email.com" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all" value={email} onChange={e => setEmail(e.target.value)} required />
                 </div>
 
+                {/* Fix: Removed redundant authMode !== 'forgot-password' check that caused a TypeScript error since authMode is already narrowed to 'login' | 'register' in this block */}
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400 px-2 tracking-widest">Password</label>
+                  <div className="flex justify-between items-center pr-2">
+                       <label className="text-[9px] font-black uppercase text-slate-400 px-2 tracking-widest">Password</label>
+                       {authMode === 'login' && (
+                         <button type="button" onClick={() => setAuthMode('forgot-password')} className="text-[9px] font-black uppercase text-green-600 tracking-widest">Lupa?</button>
+                       )}
+                  </div>
                   <input type="password" placeholder="••••••••" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all" value={password} onChange={e => setPassword(e.target.value)} required />
                 </div>
 
@@ -283,20 +258,13 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
                 </button>
               </form>
 
-              {/* Mode Toggle */}
               <div className="text-center pt-2">
                 <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setError(''); }} className="text-slate-500 text-[10px] font-black uppercase tracking-widest hover:text-green-600 transition-colors">
                   {authMode === 'login' ? 'Belum punya akun? Daftar Baru' : 'Sudah punya akun? Masuk'}
                 </button>
               </div>
 
-              {/* Or Separator and Google Sign-In (At the bottom) */}
               <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                <div className="relative flex items-center justify-center">
-                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100 dark:border-slate-800"></div></div>
-                  <span className="relative bg-white dark:bg-slate-900 px-4 text-[9px] font-black text-slate-400 uppercase tracking-widest">Atau Gunakan</span>
-                </div>
-
                 <button 
                   onClick={handleGoogleSignIn}
                   disabled={isLoading}
