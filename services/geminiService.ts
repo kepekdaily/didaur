@@ -3,7 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { RecyclingRecommendation } from "../types";
 
 const cleanJsonResponse = (text: string): string => {
-  // Membersihkan kemungkinan markdown yang disisipkan oleh model
+  // Membersihkan kemungkinan markdown atau teks tambahan dari model
   return text
     .replace(/```json/g, "")
     .replace(/```/g, "")
@@ -12,14 +12,18 @@ const cleanJsonResponse = (text: string): string => {
 };
 
 export const generateDIYImage = async (prompt: string): Promise<string> => {
-  if (!process.env.API_KEY) return `https://picsum.photos/seed/${encodeURIComponent(prompt)}/600/400`;
+  const apiKey = process.env.API_KEY;
+  if (!apiKey || apiKey === "your-gemini-api-key") {
+    return `https://picsum.photos/seed/${encodeURIComponent(prompt)}/600/400`;
+  }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
+      // Menggunakan model stabil untuk generate gambar
       model: 'gemini-2.5-flash-image',
       contents: {
-        parts: [{ text: `A professional close-up photo of a DIY project: ${prompt}. Clean background, eco-friendly aesthetic, bright lighting.` }],
+        parts: [{ text: `A clean, professional close-up photo of a DIY recycled project: ${prompt}. High resolution, bright background.` }],
       },
     });
 
@@ -33,26 +37,29 @@ export const generateDIYImage = async (prompt: string): Promise<string> => {
     }
     return `https://picsum.photos/seed/${encodeURIComponent(prompt)}/600/400`;
   } catch (error) {
-    console.warn("Image Gen Error (using fallback):", error);
+    console.warn("DIY Image gen error, using fallback:", error);
     return `https://picsum.photos/seed/${encodeURIComponent(prompt)}/600/400`;
   }
 };
 
 export const analyzeImage = async (base64Image: string): Promise<RecyclingRecommendation> => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey || apiKey === "your-gemini-api-key") {
-    throw new Error("API Key Gemini belum disetel. Sila hubungi pengembang.");
+  
+  // Validasi awal API KEY
+  if (!apiKey || apiKey === "your-gemini-api-key" || apiKey.trim() === "") {
+    throw new Error("API Key belum disetel atau tidak valid di Vercel/Environment Variables.");
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey });
-    // Menggunakan gemini-flash-lite-latest untuk kecepatan dan kompatibilitas visi yang lebih baik
+    
+    // Menggunakan gemini-3-flash-preview (Model terbaru dan paling stabil untuk visi)
     const response = await ai.models.generateContent({
-      model: "gemini-flash-lite-latest",
+      model: "gemini-3-flash-preview",
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image } },
-          { text: "Identifikasi barang bekas dalam foto ini. Berikan 3 ide daur ulang kreatif. Berikan respon dalam format JSON murni dengan struktur: { \"itemName\": string, \"materialType\": string, \"difficulty\": \"Mudah\"|\"Sedang\"|\"Sulit\", \"estimatedPoints\": number, \"co2Impact\": number (dalam gram), \"diyIdeas\": [ { \"title\": string, \"description\": string, \"timeEstimate\": string, \"toolsNeeded\": string[], \"steps\": string[] } ] }. Gunakan Bahasa Indonesia." }
+          { text: "Identifikasi barang bekas dalam foto ini. Berikan 3 ide daur ulang kreatif. Berikan respon dalam format JSON murni. Pastikan field itemName, materialType, difficulty, estimatedPoints (angka), co2Impact (angka gram), dan diyIdeas (array 3 objek berisi title, description, timeEstimate, toolsNeeded (array), steps (array)). Gunakan Bahasa Indonesia." }
         ],
       },
       config: {
@@ -87,31 +94,39 @@ export const analyzeImage = async (base64Image: string): Promise<RecyclingRecomm
 
     const rawText = response.text;
     if (!rawText) {
-      throw new Error("AI tidak memberikan respon teks.");
+      throw new Error("Respon kosong dari AI.");
     }
 
     const cleanedText = cleanJsonResponse(rawText);
     const recommendation: RecyclingRecommendation = JSON.parse(cleanedText);
     
-    // Generate gambar untuk setiap ide DIY secara paralel
+    // Membuat gambar DIY secara paralel tanpa menggagalkan proses utama jika salah satu gagal
     const ideasWithImages = await Promise.all(recommendation.diyIdeas.map(async (idea) => {
-      const img = await generateDIYImage(idea.title);
-      return { ...idea, imageUrl: img };
+      try {
+        const imageUrl = await generateDIYImage(idea.title);
+        return { ...idea, imageUrl };
+      } catch {
+        return { ...idea, imageUrl: `https://picsum.photos/seed/${encodeURIComponent(idea.title)}/600/400` };
+      }
     }));
 
     return { ...recommendation, diyIdeas: ideasWithImages };
   } catch (error: any) {
-    console.error("DEBUG: Gemini API Error Details:", error);
+    console.error("ANALYSIS ERROR:", error);
     
-    // Pesan error ramah pengguna berdasarkan jenis kegagalan
+    // Menampilkan pesan error yang lebih informatif di alert browser
+    let friendlyMessage = "Gagal memproses gambar.";
+    
     if (error.message?.includes("403")) {
-      throw new Error("Akses ditolak (403). Periksa apakah API Key Anda aktif.");
+      friendlyMessage = "Izin Ditolak (403): API Key tidak diizinkan untuk model ini atau wilayah Anda.";
     } else if (error.message?.includes("429")) {
-      throw new Error("Kuota API habis. Silakan coba lagi beberapa saat lagi.");
+      friendlyMessage = "Terlalu Banyak Permintaan (429): Mohon tunggu 1 menit sebelum mencoba lagi.";
+    } else if (error.message?.includes("500")) {
+      friendlyMessage = "Kesalahan Server AI (500): Server Google sedang sibuk.";
     } else if (error instanceof SyntaxError) {
-      throw new Error("Format data AI tidak valid. Coba ambil foto lagi.");
+      friendlyMessage = "Format Data AI Salah: Gagal memproses data JSON.";
     }
-    
-    throw new Error(error.message || "Gagal memproses gambar. Pastikan internet stabil.");
+
+    throw new Error(`${friendlyMessage} (Pesan: ${error.message?.substring(0, 40)}...)`);
   }
 };
