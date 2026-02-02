@@ -25,10 +25,10 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
     const lowerMsg = errMsg.toLowerCase();
     
     if (lowerMsg.includes('provider is not enabled') || lowerMsg.includes('unsupported provider')) {
-      return 'Fitur Login Google belum diaktifkan di Dashboard Supabase. Silakan aktifkan di: Authentication > Providers > Google.';
+      return 'Fitur Login Google belum diaktifkan di Dashboard Supabase.';
     }
     if (lowerMsg.includes('email not confirmed')) {
-      return 'Email Anda belum dikonfirmasi. Silakan cek Inbox/Spam email Anda atau matikan "Confirm Email" di Dashboard Supabase (Auth > Providers > Email).';
+      return 'Email Anda belum dikonfirmasi. Silakan cek Inbox/Spam email Anda .';
     }
     if (lowerMsg.includes('invalid login credentials')) {
       return 'Email atau Password salah. Silakan periksa kembali.';
@@ -37,7 +37,7 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
       return 'Email ini sudah terdaftar. Silakan gunakan menu Masuk.';
     }
     if (lowerMsg.includes('network error') || lowerMsg.includes('failed to fetch')) {
-      return 'Gagal terhubung ke server. Periksa koneksi internet atau SUPABASE_URL Anda.';
+      return 'Gagal terhubung ke server. Periksa koneksi internet.';
     }
     return errMsg;
   };
@@ -66,7 +66,7 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cloudReady) {
-      setError("Cloud belum terhubung. Harap isi variabel lingkungan Supabase.");
+      setError("Cloud belum terhubung.");
       return;
     }
     setError('');
