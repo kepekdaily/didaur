@@ -55,6 +55,10 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email) {
+      setError('Masukkan email Anda.');
+      return;
+    }
     setError('');
     setMessage('');
     setIsLoading(true);
@@ -205,19 +209,22 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
             <div className="space-y-6 animate-in slide-in-from-right-8 duration-500">
               <div className="text-center space-y-2">
                  <h2 className="text-2xl font-black text-slate-900 dark:text-white">Lupa Password?</h2>
-                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Masukkan email untuk mendapatkan link reset</p>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">Masukkan email terdaftar untuk menerima link reset kata sandi</p>
               </div>
               
-              {message && <p className="text-[10px] font-bold text-green-600 bg-green-50 p-4 rounded-xl border border-green-100 text-center animate-in zoom-in">{message}</p>}
-              {error && <p className="text-[10px] font-bold text-rose-500 bg-rose-50 p-4 rounded-xl border border-rose-100">{error}</p>}
+              {message && <p className="text-xs font-bold text-green-600 bg-green-50 dark:bg-green-950/30 p-4 rounded-xl border border-green-100 dark:border-green-900/30 text-center animate-in zoom-in">{message}</p>}
+              {error && <p className="text-xs font-bold text-rose-500 bg-rose-50 dark:bg-rose-950/30 p-4 rounded-xl border border-rose-100 dark:border-rose-900/30 animate-in shake duration-300">⚠️ {error}</p>}
               
               <form onSubmit={handleResetPassword} className="space-y-4">
-                 <input type="email" placeholder="email@kamu.com" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all" value={email} onChange={e => setEmail(e.target.value)} required />
+                 <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-slate-400 px-2 tracking-widest">Email Anda</label>
+                    <input type="email" placeholder="email@kamu.com" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all" value={email} onChange={e => setEmail(e.target.value)} required />
+                 </div>
                  <button type="submit" disabled={isLoading} className="w-full bg-green-600 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-green-100 dark:shadow-none active:scale-95 disabled:opacity-50 transition-all">
                     {isLoading ? 'MENGIRIM...' : 'KIRIM LINK RESET'}
                  </button>
               </form>
-              <button onClick={() => setAuthMode('login')} className="w-full text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Kembali ke Login</button>
+              <button onClick={() => { setAuthMode('login'); setError(''); setMessage(''); }} className="w-full text-[10px] font-black text-slate-400 uppercase tracking-widest text-center py-2">Kembali ke Login</button>
             </div>
           ) : (
             <div className="space-y-6 animate-in slide-in-from-left-8 duration-500">
@@ -242,12 +249,11 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
                   <input type="email" placeholder="budi@email.com" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all" value={email} onChange={e => setEmail(e.target.value)} required />
                 </div>
 
-                {/* Fix: Removed redundant authMode !== 'forgot-password' check that caused a TypeScript error since authMode is already narrowed to 'login' | 'register' in this block */}
                 <div className="space-y-1">
                   <div className="flex justify-between items-center pr-2">
                        <label className="text-[9px] font-black uppercase text-slate-400 px-2 tracking-widest">Password</label>
                        {authMode === 'login' && (
-                         <button type="button" onClick={() => setAuthMode('forgot-password')} className="text-[9px] font-black uppercase text-green-600 tracking-widest">Lupa?</button>
+                         <button type="button" onClick={() => { setAuthMode('forgot-password'); setError(''); }} className="text-[9px] font-black uppercase text-green-600 tracking-widest">Lupa Password?</button>
                        )}
                   </div>
                   <input type="password" placeholder="••••••••" className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold text-sm outline-none border-2 border-transparent focus:border-green-500 dark:text-white transition-all" value={password} onChange={e => setPassword(e.target.value)} required />
@@ -259,7 +265,7 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, isDarkMode }) => {
               </form>
 
               <div className="text-center pt-2">
-                <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setError(''); }} className="text-slate-500 text-[10px] font-black uppercase tracking-widest hover:text-green-600 transition-colors">
+                <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setError(''); setMessage(''); }} className="text-slate-500 text-[10px] font-black uppercase tracking-widest hover:text-green-600 transition-colors">
                   {authMode === 'login' ? 'Belum punya akun? Daftar Baru' : 'Sudah punya akun? Masuk'}
                 </button>
               </div>
