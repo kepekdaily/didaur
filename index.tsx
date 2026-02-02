@@ -16,9 +16,10 @@ const App = () => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(getThemePreference());
   const [isInitialized, setIsInitialized] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
-    // 1. Cek Sesi Saat Ini pada saat awal muat
+    // 1. Cek Sesi Saat Ini
     const initApp = async () => {
       try {
         const savedUser = await getCurrentUser();
@@ -33,15 +34,23 @@ const App = () => {
     };
     initApp();
 
-    // 2. Listener Perubahan Auth (Menangani Google, OTP, & Logout)
+    // 2. Registrasi Service Worker untuk PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW registration failed:', err));
+      });
+    }
+
+    // 3. Tangkap prompt instalasi
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    });
+
+    // 4. Listener Auth
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth Event Terdeteksi:", event);
-      
       if (session) {
-        // Coba ambil profil dari database
         let profile = await fetchProfile(session.user.id);
-        
-        // JIKA profil belum ada (User baru dari OTP atau Google)
         if (!profile) {
           const metadata = session.user.user_metadata;
           const newProfileData = {
@@ -55,41 +64,14 @@ const App = () => {
             total_co2_saved: 0,
             badges: []
           };
-
-          // Simpan ke database
           const { error: upsertError } = await supabase.from('profiles').upsert(newProfileData, { onConflict: 'id' });
-          
-          if (!upsertError) {
-            profile = await fetchProfile(session.user.id);
-          } else {
-            console.error("Gagal membuat profil di DB:", upsertError);
-            // Fallback: Gunakan data lokal agar user tidak stuck di login
-            profile = {
-              id: newProfileData.id,
-              email: newProfileData.email || '',
-              name: newProfileData.name,
-              points: newProfileData.points,
-              rank: newProfileData.rank,
-              itemsScanned: 0,
-              plasticItemsScanned: 0,
-              commentsMade: 0,
-              creationsShared: 0,
-              totalCo2Saved: 0,
-              avatar: newProfileData.avatar,
-              badges: []
-            };
-          }
+          if (!upsertError) profile = await fetchProfile(session.user.id);
         }
-        
         if (profile) {
           setUser(profile);
-          // Hanya pindahkan tab ke HOME jika event-nya adalah login baru
-          if (event === 'SIGNED_IN') {
-            setActiveTab(AppTab.HOME);
-          }
+          if (event === 'SIGNED_IN') setActiveTab(AppTab.HOME);
         }
       } else {
-        // Jika tidak ada sesi, pastikan user null
         setUser(null);
       }
     });
@@ -113,8 +95,11 @@ const App = () => {
     setActiveTab(AppTab.HOME);
   };
 
-  const handleUserUpdate = (updatedUser: UserProfile) => {
-    setUser({ ...updatedUser });
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') setDeferredPrompt(null);
   };
 
   if (!isInitialized) {
@@ -126,7 +111,6 @@ const App = () => {
     );
   }
 
-  // Jika tidak ada user, tampilkan layar Auth
   if (!user) {
     return <Auth onAuthComplete={handleAuthComplete} isDarkMode={isDarkMode} />;
   }
@@ -152,10 +136,20 @@ const App = () => {
 
       <main className="max-w-md mx-auto relative animate-in fade-in slide-in-from-bottom-4 duration-500">
         {activeTab === AppTab.HOME && <Home user={user} setActiveTab={setActiveTab} isDarkMode={isDarkMode} />}
-        {activeTab === AppTab.SCAN && <Scanner onPointsUpdate={handleUserUpdate} isDarkMode={isDarkMode} />}
-        {activeTab === AppTab.COMMUNITY && <Community user={user} onPointsUpdate={handleUserUpdate} isDarkMode={isDarkMode} />}
+        {activeTab === AppTab.SCAN && <Scanner onPointsUpdate={setUser} isDarkMode={isDarkMode} />}
+        {activeTab === AppTab.COMMUNITY && <Community user={user} onPointsUpdate={setUser} isDarkMode={isDarkMode} />}
         {activeTab === AppTab.LEADERBOARD && <Leaderboard isDarkMode={isDarkMode} />}
-        {activeTab === AppTab.PROFILE && <Profile user={user} onUpdate={handleUserUpdate} onLogout={handleLogout} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} />}
+        {activeTab === AppTab.PROFILE && (
+          <Profile 
+            user={user} 
+            onUpdate={setUser} 
+            onLogout={handleLogout} 
+            isDarkMode={isDarkMode} 
+            onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} 
+            canInstall={!!deferredPrompt}
+            onInstallRequest={handleInstallApp}
+          />
+        )}
       </main>
 
       <Navigation activeTab={activeTab} setActiveTab={setActiveTab} isDarkMode={isDarkMode} />
