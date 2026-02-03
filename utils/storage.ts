@@ -21,31 +21,31 @@ const mapProfile = (data: any): UserProfile => ({
   id: String(data.id),
   email: data.email,
   name: data.name,
-  points: data.points || 0,
+  points: Number(data.points) || 0,
   rank: data.rank || 'Pemula Hijau',
-  itemsScanned: data.items_scanned || 0,
-  plasticItemsScanned: data.plastic_items_scanned || 0,
-  commentsMade: data.comments_made || 0,
-  creationsShared: data.creations_shared || 0,
-  totalCo2Saved: data.total_co2_saved || 0,
+  itemsScanned: Number(data.items_scanned) || 0,
+  plasticItemsScanned: Number(data.plastic_items_scanned) || 0,
+  commentsMade: Number(data.comments_made) || 0,
+  creationsShared: Number(data.creations_shared) || 0,
+  totalCo2Saved: Number(data.total_co2_saved) || 0,
   avatar: data.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.id}`,
   badges: data.badges || []
 });
 
 const mapPost = (p: any): CommunityPost => ({
   id: String(p.id),
-  userName: p.user_name,
-  userAvatar: p.user_avatar,
-  itemName: p.item_name,
-  description: p.description,
-  imageUrl: p.image_url,
+  userName: p.user_name || 'Anonim',
+  userAvatar: p.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${p.user_id}`,
+  itemName: p.item_name || 'Barang Didaur',
+  description: p.description || '',
+  imageUrl: p.image_url || '',
   likes: Number(p.likes) || 0,
   comments: Number(p.comments) || 0,
   timestamp: new Date(p.created_at).getTime(),
   pointsEarned: 250,
-  materialTag: p.material_tag,
-  isForSale: p.is_for_sale,
-  price: p.price
+  materialTag: p.material_tag || 'Lainnya',
+  isForSale: !!p.is_for_sale,
+  price: p.price ? Number(p.price) : undefined
 });
 
 export const isCloudConfigured = (): boolean => {
@@ -90,7 +90,7 @@ export const getCommunityPosts = async (): Promise<CommunityPost[]> => {
 export const saveCommunityPost = async (post: Partial<CommunityPost>) => {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return;
-  await supabase.from('posts').insert({
+  const { error } = await supabase.from('posts').insert({
     user_id: session.user.id,
     user_name: post.userName,
     user_avatar: post.userAvatar,
@@ -103,6 +103,7 @@ export const saveCommunityPost = async (post: Partial<CommunityPost>) => {
     likes: 0,
     comments: 0
   });
+  if (error) throw error;
 };
 
 export const updateUserPoints = async (pointsToAdd: number, co2ToAdd: number = 0, isScan: boolean = true): Promise<UserProfile | null> => {
@@ -134,7 +135,7 @@ export const getLeaderboard = async (): Promise<LeaderboardEntry[]> => {
   return (data || []).map((u: any, i: number) => ({
     id: String(u.id),
     name: u.name,
-    points: u.points,
+    points: Number(u.points) || 0,
     avatar: u.avatar,
     rank: i + 1
   }));
@@ -170,7 +171,7 @@ export const getMarketItems = async (): Promise<MarketplaceItem[]> => {
     sellerAvatar: p.user_avatar,
     title: p.item_name,
     description: p.description,
-    price: p.price,
+    price: Number(p.price) || 0,
     imageUrl: p.image_url,
     materialTag: p.material_tag,
     timestamp: new Date(p.created_at).getTime()
@@ -186,52 +187,68 @@ export const purchaseMarketItem = async (itemId: string, price: number) => {
 
 export const getPostComments = async (postId: string): Promise<Comment[]> => {
   if (!isCloudConfigured()) return [];
-  const { data } = await supabase.from('comments').select('*').eq('post_id', postId).order('created_at', { ascending: true });
-  return (data || []).map((c: any) => ({
-    id: String(c.id),
-    userName: c.user_name,
-    userAvatar: c.user_avatar,
-    text: c.text,
-    timestamp: new Date(c.created_at).getTime()
-  }));
+  try {
+    const { data, error } = await supabase.from('comments').select('*').eq('post_id', postId).order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data || []).map((c: any) => ({
+      id: String(c.id),
+      userName: c.user_name || 'User',
+      userAvatar: c.user_avatar || '',
+      text: c.text || '',
+      timestamp: new Date(c.created_at).getTime()
+    }));
+  } catch (err) {
+    console.error("Failed to fetch comments:", err);
+    return [];
+  }
 };
 
 export const savePostComment = async (postId: string, comment: Partial<Comment>): Promise<UserProfile | null> => {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return null;
 
-  // 1. Simpan komentar
-  const { error: commentErr } = await supabase.from('comments').insert({
+  // 1. Simpan komentar baru
+  const { error: insertErr } = await supabase.from('comments').insert({
     post_id: postId,
     user_id: session.user.id,
     user_name: comment.userName,
     user_avatar: comment.userAvatar,
     text: comment.text
   });
-  if (commentErr) throw commentErr;
+  if (insertErr) throw insertErr;
 
-  // 2. Update hitungan di posts (Atomicish)
-  const { data: currentPost } = await supabase.from('posts').select('comments').eq('id', postId).single();
-  const currentCount = Number(currentPost?.comments) || 0;
-  await supabase.from('posts').update({ comments: currentCount + 1 }).eq('id', postId);
+  // 2. Ambil jumlah komentar saat ini untuk update
+  const { data: currentPost, error: fetchErr } = await supabase.from('posts').select('comments').eq('id', postId).single();
+  if (fetchErr) throw fetchErr;
+
+  const newCount = (Number(currentPost?.comments) || 0) + 1;
+  const { error: updateErr } = await supabase.from('posts').update({ comments: newCount }).eq('id', postId);
+  if (updateErr) throw updateErr;
 
   return await updateUserPoints(10, 0, false);
 };
 
 export const getLikedPosts = (): Set<string> => {
-  const saved = localStorage.getItem(STORAGE_KEY_LIKED);
-  const parsed = saved ? JSON.parse(saved) : [];
-  return new Set<string>(parsed.map(String));
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_LIKED);
+    const parsed = saved ? JSON.parse(saved) : [];
+    return new Set<string>(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch (e) {
+    return new Set<string>();
+  }
 };
 
 export const saveLikedPosts = (likedSet: Set<string>) => {
-  localStorage.setItem(STORAGE_KEY_LIKED, JSON.stringify(Array.from(likedSet).map(String)));
+  localStorage.setItem(STORAGE_KEY_LIKED, JSON.stringify(Array.from(likedSet)));
 };
 
 export const updatePostLikes = async (id: string) => {
-  const { data: currentPost } = await supabase.from('posts').select('likes').eq('id', id).single();
-  const currentLikes = Number(currentPost?.likes) || 0;
-  await supabase.from('posts').update({ likes: currentLikes + 1 }).eq('id', id);
+  const { data: currentPost, error: fetchErr } = await supabase.from('posts').select('likes').eq('id', id).single();
+  if (fetchErr) throw fetchErr;
+
+  const newLikes = (Number(currentPost?.likes) || 0) + 1;
+  const { error: updateErr } = await supabase.from('posts').update({ likes: newLikes }).eq('id', id);
+  if (updateErr) throw updateErr;
 };
 
 export const BADGES: Badge[] = [
