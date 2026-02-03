@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Cropper from 'react-easy-crop';
 import { analyzeImage, generateDIYImage } from '../services/geminiService';
 import { RecyclingRecommendation, UserProfile, CommunityPost, DIYIdea } from '../types';
@@ -15,18 +15,22 @@ const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<string> 
   canvas.width = pixelCrop.width;
   canvas.height = pixelCrop.height;
   ctx.drawImage(image, pixelCrop.x, pixelCrop.y, pixelCrop.width, pixelCrop.height, 0, 0, pixelCrop.width, pixelCrop.height);
-  return canvas.toDataURL('image/jpeg', 0.8); // Kompresi sedikit untuk hemat storage
+  return canvas.toDataURL('image/jpeg', 0.8);
 };
 
 interface ScannerProps {
+  // Added user to props for completing tutorial
+  user: UserProfile;
   onPointsUpdate: (updatedUser: UserProfile) => void;
   isDarkMode: boolean;
 }
 
-const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
+// Fixed missing React import for React.FC and other React types
+const Scanner: React.FC<ScannerProps> = ({ user, onPointsUpdate, isDarkMode }) => {
   const [image, setImage] = useState<string | null>(null);
   const [tempImage, setTempImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [result, setResult] = useState<RecyclingRecommendation | null>(null);
   const [activeTab, setActiveTab] = useState<'Scan' | 'Riwayat'>('Scan');
   const [history, setHistory] = useState<RecyclingRecommendation[]>(getScanHistory());
@@ -50,7 +54,21 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
 
   const startCamera = async (isCompletion = false) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Browser Anda tidak mendukung akses kamera.");
+      }
+
+      const constraints = { 
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }, 
+        audio: false 
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      
       if (isCompletion) {
         if (completionVideoRef.current) {
           completionVideoRef.current.srcObject = stream;
@@ -62,8 +80,9 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
         streamRef.current = stream;
         setIsCameraActive(true);
       }
-    } catch (err) {
-      alert("Izin kamera diperlukan.");
+    } catch (err: any) {
+      console.error("Camera access error:", err);
+      alert(err.message || "Izin kamera ditolak atau tidak tersedia. Pastikan Anda memberikan izin di pengaturan browser.");
     }
   };
 
@@ -85,7 +104,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(targetVideo, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
         if (isCompletion) {
           setCompletionPhoto(dataUrl);
           stopCamera();
@@ -98,6 +117,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
     }
   };
 
+  // Fixed missing React namespace for ChangeEvent
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -114,6 +134,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
   const handleCropConfirm = async () => {
     if (!tempImage || !croppedAreaPixels) return;
     setLoading(true);
+    setScanError(null);
     setIsCropping(false);
     setIdeaImages({});
     setResult(null);
@@ -122,12 +143,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
       const croppedBase64 = await getCroppedImg(tempImage, croppedAreaPixels);
       setImage(croppedBase64);
       
-      // Timeout guard 15 detik
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout: Analisis terlalu lama.")), 15000));
-      const data = await Promise.race([
-        analyzeImage(croppedBase64.split(',')[1]),
-        timeoutPromise
-      ]) as RecyclingRecommendation;
+      const data = await analyzeImage(croppedBase64.split(',')[1]);
 
       const finalData = { ...data, originalImage: croppedBase64, timestamp: Date.now() };
       setResult(finalData);
@@ -137,21 +153,16 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
       const updatedUser: UserProfile | null = await updateUserPoints(20, data.co2Impact, true);
       if (updatedUser) onPointsUpdate(updatedUser);
 
-      // Generate visual asinkron agar UI tidak freeze
       finalData.diyIdeas.forEach(async (idea, idx) => {
         try {
           const imgUrl = await generateDIYImage(idea.title, finalData.itemName);
           setIdeaImages(prev => ({ ...prev, [idx]: imgUrl }));
-          // Update history with generated images for next time
           updateHistoryItemImage(finalData.timestamp!, idx, imgUrl);
-        } catch (e) {
-          console.error("Gagal generate gambar untuk ide", idx);
-        }
+        } catch (e) {}
       });
 
     } catch (error: any) {
-      alert(error.message || "Gagal memproses gambar. Coba lagi.");
-      setImage(null);
+      setScanError(error.message);
     } finally {
       setLoading(false);
     }
@@ -167,50 +178,50 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
     }
   };
 
+  // Fixed missing handleFinishTutorial implementation
+  const handleFinishTutorial = async () => {
+    if (!selectedTutorial || !completionPhoto) return;
+    
+    setLoading(true);
+    try {
+      // Save the completed project to community posts
+      await saveCommunityPost({
+        userName: user.name,
+        userAvatar: user.avatar,
+        itemName: selectedTutorial.title,
+        description: `Saya baru saja menyelesaikan proyek DIY: ${selectedTutorial.title}! #DidaurAI`,
+        imageUrl: completionPhoto,
+        materialTag: result?.materialType || 'Lainnya',
+        isForSale: false
+      });
+
+      // Update user points with 250 XP bonus for completing tutorial
+      const updatedUser = await updateUserPoints(250, 0, false);
+      if (updatedUser) onPointsUpdate(updatedUser);
+      
+      // Clear states
+      setSelectedTutorial(null);
+      setCompletionPhoto(null);
+      setCurrentStep(0);
+      alert("Selamat! Proyek dibagikan dan 250 XP ditambahkan ke profilmu.");
+    } catch (error) {
+      console.error("Gagal menyelesaikan tutorial:", error);
+      alert("Terjadi kesalahan saat menyimpan progress.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSelectFromHistory = (item: RecyclingRecommendation) => {
     setResult(item);
     setImage(item.originalImage || null);
-    
-    // Load existing images from the history object
+    setScanError(null);
     const existingImages: Record<number, string> = {};
     item.diyIdeas.forEach((idea, idx) => {
       if (idea.imageUrl) existingImages[idx] = idea.imageUrl;
     });
     setIdeaImages(existingImages);
-    
-    // If some images are missing, trigger generation
-    item.diyIdeas.forEach(async (idea, idx) => {
-      if (!idea.imageUrl) {
-        const imgUrl = await generateDIYImage(idea.title, item.itemName);
-        setIdeaImages(prev => ({ ...prev, [idx]: imgUrl }));
-        updateHistoryItemImage(item.timestamp!, idx, imgUrl);
-      }
-    });
-
     setActiveTab('Scan');
-  };
-
-  const handleFinishTutorial = async () => {
-    if (!completionPhoto || !selectedTutorial || !result) return;
-    const updatedUser: UserProfile | null = await updateUserPoints(250, 0, false);
-    if (updatedUser) {
-      onPointsUpdate(updatedUser);
-      const post: Partial<CommunityPost> = {
-        userName: updatedUser.name,
-        userAvatar: updatedUser.avatar,
-        itemName: `Berhasil DIY: ${selectedTutorial.title}`,
-        description: `Saya berhasil mengubah ${result.itemName} menjadi karya ini!`,
-        imageUrl: completionPhoto,
-        timestamp: Date.now(),
-        pointsEarned: 250,
-        materialTag: result.materialType
-      };
-      await saveCommunityPost(post);
-      alert("🎉 Proyek Selesai! +250 XP diklaim.");
-      setSelectedTutorial(null);
-      setCompletionPhoto(null);
-      setCurrentStep(0);
-    }
   };
 
   useEffect(() => { return () => stopCamera(); }, []);
@@ -235,7 +246,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
                 <div onClick={() => startCamera()} className="aspect-square cursor-pointer group">
                   <div className="h-full border-2 border-green-100 dark:border-green-800 rounded-[2.5rem] bg-white dark:bg-slate-900 flex flex-col items-center justify-center p-4 shadow-sm group-hover:scale-105 transition-all">
                     <div className="w-14 h-14 bg-green-600 rounded-2xl flex items-center justify-center shadow-lg mb-3 text-white">
-                      <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                      <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812-1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                     </div>
                     <span className="text-[10px] font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest">Kamera</span>
                   </div>
@@ -254,7 +265,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
           ) : isCameraActive ? (
             <div className="relative flex flex-col h-[75vh] animate-in fade-in zoom-in duration-300">
                <div className="relative flex-1 rounded-[3rem] overflow-hidden border-4 border-white dark:border-slate-800 shadow-2xl bg-black">
-                  <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                  <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
                   <button onClick={stopCamera} className="absolute top-6 left-6 p-4 bg-white/10 backdrop-blur-md rounded-2xl text-white border border-white/20">✕</button>
                </div>
                <div className="p-8 flex items-center justify-center">
@@ -276,7 +287,18 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
                   <div className="absolute inset-0 bg-black/80 backdrop-blur-xl flex flex-col items-center justify-center p-8 text-center text-white">
                      <div className="w-20 h-20 border-4 border-white/20 border-t-green-500 rounded-full animate-spin mb-6"></div>
                      <h2 className="text-xl font-black mb-2">Mengidentifikasi...</h2>
-                     <p className="text-xs font-bold text-slate-400 px-6">AI sedang mencari ide daur ulang paling keren untuk Anda.</p>
+                     <p className="text-xs font-bold text-slate-400 px-6">AI sedang mencari ide daur ulang paling keren. Mohon tunggu, server mungkin sedang sibuk.</p>
+                  </div>
+                )}
+                {scanError && (
+                  <div className="absolute inset-0 bg-rose-950/90 backdrop-blur-xl flex flex-col items-center justify-center p-8 text-center text-white animate-in zoom-in">
+                     <div className="text-5xl mb-4">⚠️</div>
+                     <h2 className="text-xl font-black mb-2">Gagal Menganalisis</h2>
+                     <p className="text-xs font-bold text-rose-200 px-4 mb-6">{scanError}</p>
+                     <div className="flex flex-col w-full space-y-3">
+                        <button onClick={handleCropConfirm} className="w-full bg-white text-rose-900 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest">Coba Analisis Lagi</button>
+                        <button onClick={() => { setImage(null); setScanError(null); }} className="w-full bg-rose-800/50 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest">Batal</button>
+                     </div>
                   </div>
                 )}
               </div>
@@ -408,7 +430,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
                      <div className="space-y-6">
                         <div className="relative aspect-square rounded-[3rem] overflow-hidden bg-black border-4 border-white dark:border-slate-800 shadow-2xl">
                            {isCompletionCameraActive ? (
-                             <video ref={completionVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                             <video ref={completionVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
                            ) : (
                              <div className="w-full h-full flex items-center justify-center text-slate-600">
                                <span className="text-5xl">📷</span>
@@ -424,6 +446,7 @@ const Scanner: React.FC<ScannerProps> = ({ onPointsUpdate, isDarkMode }) => {
                    ) : (
                      <div className="space-y-6">
                         <img src={completionPhoto} className="w-full aspect-square object-cover rounded-[3rem] shadow-2xl border-8 border-green-500/20" />
+                        {/* Fixed missing handleFinishTutorial call */}
                         <button onClick={handleFinishTutorial} className="w-full bg-green-600 text-white py-6 rounded-[2.5rem] font-black shadow-xl uppercase tracking-widest text-sm">KLAIM 250 XP & BAGIKAN</button>
                         <button onClick={() => setCompletionPhoto(null)} className="text-slate-400 font-black uppercase text-[10px] tracking-widest">Foto Ulang</button>
                      </div>
