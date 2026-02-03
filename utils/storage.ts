@@ -1,3 +1,4 @@
+
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { CommunityPost, UserProfile, LeaderboardEntry, MarketplaceItem, Comment, Badge, RecyclingRecommendation } from '../types';
 
@@ -17,7 +18,7 @@ const STORAGE_KEY_HISTORY = 'didaur_history_v5';
 const STORAGE_KEY_LIKED = 'didaur_liked_posts_v5';
 
 const mapProfile = (data: any): UserProfile => ({
-  id: data.id,
+  id: String(data.id),
   email: data.email,
   name: data.name,
   points: data.points || 0,
@@ -32,14 +33,14 @@ const mapProfile = (data: any): UserProfile => ({
 });
 
 const mapPost = (p: any): CommunityPost => ({
-  id: p.id,
+  id: String(p.id),
   userName: p.user_name,
   userAvatar: p.user_avatar,
   itemName: p.item_name,
   description: p.description,
   imageUrl: p.image_url,
-  likes: p.likes || 0,
-  comments: p.comments || 0,
+  likes: Number(p.likes) || 0,
+  comments: Number(p.comments) || 0,
   timestamp: new Date(p.created_at).getTime(),
   pointsEarned: 250,
   materialTag: p.material_tag,
@@ -76,8 +77,14 @@ export const logoutUser = async () => {
 
 export const getCommunityPosts = async (): Promise<CommunityPost[]> => {
   if (!isCloudConfigured()) return [];
-  const { data } = await supabase.from('posts').select('*').order('created_at', { ascending: false });
-  return (data || []).map((p: any) => mapPost(p));
+  try {
+    const { data, error } = await supabase.from('posts').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map((p: any) => mapPost(p));
+  } catch (err) {
+    console.error("Fetch posts failed:", err);
+    return [];
+  }
 };
 
 export const saveCommunityPost = async (post: Partial<CommunityPost>) => {
@@ -90,9 +97,11 @@ export const saveCommunityPost = async (post: Partial<CommunityPost>) => {
     item_name: post.itemName,
     description: post.description,
     image_url: post.imageUrl,
-    material_tag: post.material_tag,
+    material_tag: post.materialTag,
     is_for_sale: post.isForSale,
-    price: post.price
+    price: post.price,
+    likes: 0,
+    comments: 0
   });
 };
 
@@ -123,7 +132,7 @@ export const getLeaderboard = async (): Promise<LeaderboardEntry[]> => {
   if (!isCloudConfigured()) return [];
   const { data } = await supabase.from('profiles').select('id, name, points, avatar').order('points', { ascending: false }).limit(20);
   return (data || []).map((u: any, i: number) => ({
-    id: u.id,
+    id: String(u.id),
     name: u.name,
     points: u.points,
     avatar: u.avatar,
@@ -156,7 +165,7 @@ export const getMarketItems = async (): Promise<MarketplaceItem[]> => {
   if (!isCloudConfigured()) return [];
   const { data } = await supabase.from('posts').select('*').eq('is_for_sale', true).order('created_at', { ascending: false });
   return (data || []).map((p: any) => ({
-    id: p.id,
+    id: String(p.id),
     sellerName: p.user_name,
     sellerAvatar: p.user_avatar,
     title: p.item_name,
@@ -179,7 +188,7 @@ export const getPostComments = async (postId: string): Promise<Comment[]> => {
   if (!isCloudConfigured()) return [];
   const { data } = await supabase.from('comments').select('*').eq('post_id', postId).order('created_at', { ascending: true });
   return (data || []).map((c: any) => ({
-    id: c.id,
+    id: String(c.id),
     userName: c.user_name,
     userAvatar: c.user_avatar,
     text: c.text,
@@ -191,35 +200,38 @@ export const savePostComment = async (postId: string, comment: Partial<Comment>)
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return null;
 
-  // Simpan komentar baru
-  await supabase.from('comments').insert({
+  // 1. Simpan komentar
+  const { error: commentErr } = await supabase.from('comments').insert({
     post_id: postId,
     user_id: session.user.id,
     user_name: comment.userName,
     user_avatar: comment.userAvatar,
     text: comment.text
   });
+  if (commentErr) throw commentErr;
 
-  // Ambil jumlah komentar saat ini dan update tabel posts
-  const { data: postData } = await supabase.from('posts').select('comments').eq('id', postId).single();
-  await supabase.from('posts').update({ comments: (postData?.comments || 0) + 1 }).eq('id', postId);
+  // 2. Update hitungan di posts (Atomicish)
+  const { data: currentPost } = await supabase.from('posts').select('comments').eq('id', postId).single();
+  const currentCount = Number(currentPost?.comments) || 0;
+  await supabase.from('posts').update({ comments: currentCount + 1 }).eq('id', postId);
 
   return await updateUserPoints(10, 0, false);
 };
 
 export const getLikedPosts = (): Set<string> => {
   const saved = localStorage.getItem(STORAGE_KEY_LIKED);
-  // Fix: Explicitly type the Set constructor to Set<string> to prevent Set<unknown> inference
-  return new Set<string>(saved ? JSON.parse(saved) : []);
+  const parsed = saved ? JSON.parse(saved) : [];
+  return new Set<string>(parsed.map(String));
 };
 
 export const saveLikedPosts = (likedSet: Set<string>) => {
-  localStorage.setItem(STORAGE_KEY_LIKED, JSON.stringify(Array.from(likedSet)));
+  localStorage.setItem(STORAGE_KEY_LIKED, JSON.stringify(Array.from(likedSet).map(String)));
 };
 
 export const updatePostLikes = async (id: string) => {
-  const { data } = await supabase.from('posts').select('likes').eq('id', id).single();
-  await supabase.from('posts').update({ likes: (data?.likes || 0) + 1 }).eq('id', id);
+  const { data: currentPost } = await supabase.from('posts').select('likes').eq('id', id).single();
+  const currentLikes = Number(currentPost?.likes) || 0;
+  await supabase.from('posts').update({ likes: currentLikes + 1 }).eq('id', id);
 };
 
 export const BADGES: Badge[] = [
