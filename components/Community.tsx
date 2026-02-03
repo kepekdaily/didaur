@@ -50,6 +50,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
     try {
       const fetchedPosts = await getCommunityPosts();
       setPosts(fetchedPosts);
+      // Sinkronkan status liked dari localStorage
       setLikedPosts(getLikedPosts());
     } catch (e) {
       console.error("Gagal refresh posts:", e);
@@ -84,21 +85,26 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
 
   const handleLike = async (id: string) => {
     const postId = String(id);
+    // Jika sudah di-like, jangan lakukan apa-apa
     if (likedPosts.has(postId)) return;
     
-    // Update Lokal Optimistic
+    // 1. Pembaruan Lokal Seketika (Optimistic UI)
     setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes: (p.likes || 0) + 1 } : p));
+    
+    // Simpan status di Set lokal dan localStorage
     const newLiked = new Set<string>(likedPosts);
     newLiked.add(postId);
     setLikedPosts(newLiked);
     saveLikedPosts(newLiked);
 
     try {
+      // 2. Simpan ke Database
       await updatePostLikes(postId);
       const updated = await updateUserPoints(5, 0, false);
       if (updated) onPointsUpdate(updated);
     } catch (err) {
-      console.error("Gagal update like di DB:", err);
+      console.error("Gagal simpan Like ke database:", err);
+      // Opsional: Batalkan pembaruan lokal jika benar-benar gagal
     }
   };
 
@@ -110,7 +116,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
       const comments = await getPostComments(targetId);
       setCurrentComments(comments);
     } catch (err) {
-      console.error("Gagal load komentar:", err);
+      console.error("Gagal memuat komentar:", err);
     }
   };
 
@@ -126,7 +132,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
     };
     
     try {
-      // Optimistic update
+      // Pembaruan lokal untuk jumlah komentar
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments: (p.comments || 0) + 1 } : p));
       
       const updatedUser = await savePostComment(postId, comment);
@@ -137,10 +143,10 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
       
       if (updatedUser) onPointsUpdate(updatedUser);
       
-      // Sinkronkan feed utama agar data benar dari DB
+      // Sinkronisasi ulang postingan untuk memastikan data terbaru dari DB
       await refreshPosts();
     } catch (err) {
-      alert("Gagal mengirim komentar.");
+      alert("Maaf, gagal mengirim komentar.");
     }
   };
 
@@ -325,6 +331,12 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
               </div>
             </div>
           ))}
+          {filteredPosts.length === 0 && (
+            <div className="text-center py-20 opacity-30">
+               <span className="text-6xl">🌱</span>
+               <p className="mt-4 font-black uppercase text-xs tracking-[0.2em]">Belum ada inspirasi</p>
+            </div>
+          )}
         </div>
       ) : (
         <div className="p-6 grid grid-cols-2 gap-4">
