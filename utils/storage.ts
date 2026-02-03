@@ -1,14 +1,12 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { CommunityPost, UserProfile, LeaderboardEntry, MarketplaceItem, Comment, Badge, RecyclingRecommendation } from '../types';
 
-// Injeksi variabel dari Vite define (yang mengambil dari .env)
 const SUPABASE_URL_ENV = process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY_ENV = process.env.SUPABASE_ANON_KEY || '';
 
 const DUMMY_URL = 'https://your-project.supabase.co';
 const DUMMY_KEY = 'your-anon-key';
 
-// Ekspor instance supabase untuk digunakan di seluruh aplikasi
 export const supabase: SupabaseClient = createClient(
   SUPABASE_URL_ENV && SUPABASE_URL_ENV.startsWith('http') ? SUPABASE_URL_ENV : DUMMY_URL, 
   SUPABASE_ANON_KEY_ENV && SUPABASE_ANON_KEY_ENV.length > 0 ? SUPABASE_ANON_KEY_ENV : DUMMY_KEY
@@ -16,8 +14,8 @@ export const supabase: SupabaseClient = createClient(
 
 const STORAGE_KEY_THEME = 'didaur_theme_v5';
 const STORAGE_KEY_HISTORY = 'didaur_history_v5';
+const STORAGE_KEY_LIKED = 'didaur_liked_posts_v5';
 
-// Mapping dari snake_case (database) ke camelCase (frontend)
 const mapProfile = (data: any): UserProfile => ({
   id: data.id,
   email: data.email,
@@ -92,7 +90,7 @@ export const saveCommunityPost = async (post: Partial<CommunityPost>) => {
     item_name: post.itemName,
     description: post.description,
     image_url: post.imageUrl,
-    material_tag: post.materialTag,
+    material_tag: post.material_tag,
     is_for_sale: post.isForSale,
     price: post.price
   });
@@ -192,6 +190,8 @@ export const getPostComments = async (postId: string): Promise<Comment[]> => {
 export const savePostComment = async (postId: string, comment: Partial<Comment>): Promise<UserProfile | null> => {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return null;
+
+  // Simpan komentar baru
   await supabase.from('comments').insert({
     post_id: postId,
     user_id: session.user.id,
@@ -199,7 +199,27 @@ export const savePostComment = async (postId: string, comment: Partial<Comment>)
     user_avatar: comment.userAvatar,
     text: comment.text
   });
+
+  // Ambil jumlah komentar saat ini dan update tabel posts
+  const { data: postData } = await supabase.from('posts').select('comments').eq('id', postId).single();
+  await supabase.from('posts').update({ comments: (postData?.comments || 0) + 1 }).eq('id', postId);
+
   return await updateUserPoints(10, 0, false);
+};
+
+export const getLikedPosts = (): Set<string> => {
+  const saved = localStorage.getItem(STORAGE_KEY_LIKED);
+  // Fix: Explicitly type the Set constructor to Set<string> to prevent Set<unknown> inference
+  return new Set<string>(saved ? JSON.parse(saved) : []);
+};
+
+export const saveLikedPosts = (likedSet: Set<string>) => {
+  localStorage.setItem(STORAGE_KEY_LIKED, JSON.stringify(Array.from(likedSet)));
+};
+
+export const updatePostLikes = async (id: string) => {
+  const { data } = await supabase.from('posts').select('likes').eq('id', id).single();
+  await supabase.from('posts').update({ likes: (data?.likes || 0) + 1 }).eq('id', id);
 };
 
 export const BADGES: Badge[] = [
@@ -212,7 +232,3 @@ export const getDatabaseStats = () => ({ kb: 'Cloud', totalStorageUsed: 'Sync Ak
 export const generateSyncCode = () => "SYNC-" + Math.random().toString(36).substr(2, 9).toUpperCase();
 export const importFromSyncCode = (c: string) => true;
 export const clearDatabase = () => localStorage.clear();
-export const updatePostLikes = async (id: string) => {
-  const { data } = await supabase.from('posts').select('likes').eq('id', id).single();
-  await supabase.from('posts').update({ likes: (data?.likes || 0) + 1 }).eq('id', id);
-};
