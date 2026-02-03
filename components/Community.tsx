@@ -8,7 +8,9 @@ import {
   purchaseMarketItem, 
   updatePostLikes, 
   getPostComments, 
-  savePostComment 
+  savePostComment,
+  getLikedPosts,
+  saveLikedPosts
 } from '../utils/storage';
 
 interface CommunityProps {
@@ -30,7 +32,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
   const [activeCategory, setActiveCategory] = useState('Semua');
   const [searchQuery, setSearchQuery] = useState('');
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error', details?: string } | null>(null);
-  const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
+  const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set<string>());
   
   const [newPost, setNewPost] = useState({ 
     itemName: '', 
@@ -43,13 +45,13 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
 
   const categories = ['Semua', 'Plastik', 'Kardus', 'Kaca', 'Logam', 'Tekstil'];
 
-  /* Initial data fetch for posts and market items */
   useEffect(() => {
     const fetchData = async () => {
       const fetchedPosts = await getCommunityPosts();
       const fetchedMarket = await getMarketItems();
       setPosts(fetchedPosts);
       setMarketItems(fetchedMarket);
+      setLikedPosts(getLikedPosts());
     };
     fetchData();
   }, []);
@@ -73,9 +75,20 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
 
   const handleLike = async (id: string) => {
     if (likedPosts.has(id)) return;
+    
+    // Update DB
     await updatePostLikes(id);
+    
+    // Update Local State
     setPosts(prev => prev.map(p => p.id === id ? { ...p, likes: p.likes + 1 } : p));
-    setLikedPosts(new Set(likedPosts).add(id));
+    
+    // Fix: Explicitly type the new Set to string and avoid chaining add() to ensure correct return type inference
+    const newLiked = new Set<string>(likedPosts);
+    newLiked.add(id);
+    
+    setLikedPosts(newLiked);
+    saveLikedPosts(newLiked); // Simpan ke localStorage
+
     const updated = await updateUserPoints(5, 0, false);
     if (updated) onPointsUpdate(updated);
   };
@@ -94,13 +107,15 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
       text: newCommentText,
       timestamp: Date.now()
     };
+    
     const updatedUser = await savePostComment(viewingCommentsPostId, comment);
     
-    // Refresh data
+    // Refresh Komentar di popup
     const comments = await getPostComments(viewingCommentsPostId);
     setCurrentComments(comments);
     setNewCommentText('');
     
+    // Refresh Jumlah Komentar di list feed utama
     const freshPosts = await getCommunityPosts();
     setPosts(freshPosts);
     
@@ -141,7 +156,6 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
     };
     await saveCommunityPost(post);
     
-    // Refresh list
     const freshPosts = await getCommunityPosts();
     setPosts(freshPosts);
     
@@ -263,7 +277,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
                          <span className="text-sm font-black">{post.likes}</span>
                       </button>
                       <button onClick={() => handleOpenComments(post.id)} className="flex items-center space-x-2 text-slate-400">
-                         <div className="p-3 bg-slate-100 rounded-2xl">
+                         <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl">
                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
                          </div>
                          <span className="text-sm font-black">{post.comments || 0}</span>
