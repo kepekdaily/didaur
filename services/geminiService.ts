@@ -27,7 +27,7 @@ export const analyzeImage = async (base64Image: string, retries = 3): Promise<Re
         contents: {
           parts: [
             { inlineData: { mimeType: "image/jpeg", data: base64Image } },
-            { text: "Identifikasi barang ini. Berikan 3 ide daur ulang kreatif. Balas dalam JSON murni Bahasa Indonesia. Struktur: { \"itemName\": string, \"materialType\": string, \"difficulty\": \"Mudah\"|\"Sedang\", \"estimatedPoints\": number, \"co2Impact\": number, \"diyIdeas\": [ { \"title\": string, \"description\": string, \"timeEstimate\": string, \"toolsNeeded\": string[], \"steps\": string[] } ] }" }
+            { text: "Identifikasi barang ini. Berikan 3 ide daur ulang kreatif. Balas dalam JSON murni Bahasa Indonesia. Struktur: { \"itemName\": string, \"materialType\": string, \"difficulty\": \"Mudah\"|\"Sedang\", \"estimatedPoints\": number, \"co2Impact\": number, \"diyIdeas\": [ { \"title\": string, \"description\": string, \"timeEstimate\": string, \"toolsNeeded\": string[], \"steps\": string[], \"imagePrompt\": string } ] }" }
           ],
         },
         config: {
@@ -49,9 +49,10 @@ export const analyzeImage = async (base64Image: string, retries = 3): Promise<Re
                     description: { type: Type.STRING },
                     timeEstimate: { type: Type.STRING },
                     toolsNeeded: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    steps: { type: Type.ARRAY, items: { type: Type.STRING } }
+                    steps: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    imagePrompt: { type: Type.STRING, description: "Prompt bahasa inggris untuk generate gambar hasil akhir proyek ini" }
                   },
-                  required: ["title", "description", "timeEstimate", "toolsNeeded", "steps"]
+                  required: ["title", "description", "timeEstimate", "toolsNeeded", "steps", "imagePrompt"]
                 }
               }
             },
@@ -83,17 +84,19 @@ export const analyzeImage = async (base64Image: string, retries = 3): Promise<Re
   throw new Error("Gagal terhubung ke AI setelah beberapa kali mencoba.");
 };
 
-export const generateDIYImage = async (ideaTitle: string, originalItem: string): Promise<string> => {
+export const generateDIYImage = async (ideaTitle: string, originalItem: string, customPrompt?: string): Promise<string> => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) return `https://picsum.photos/seed/${encodeURIComponent(ideaTitle)}/600/400`;
 
   try {
     const ai = new GoogleGenAI({ apiKey });
+    const prompt = customPrompt || `A beautiful and realistic photo of a finished DIY recycling project: ${ideaTitle}, made from ${originalItem}. High quality, clean background, 4k resolution.`;
+    
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: {
         parts: [
-          { text: `A beautiful and realistic photo of a finished DIY recycling project: ${ideaTitle}, made from ${originalItem}. High quality, clean background, 4k resolution.` },
+          { text: prompt },
         ],
       },
       config: {
@@ -109,5 +112,34 @@ export const generateDIYImage = async (ideaTitle: string, originalItem: string):
     return `https://picsum.photos/seed/${encodeURIComponent(ideaTitle)}/600/400`;
   } catch (err) {
     return `https://picsum.photos/seed/${encodeURIComponent(ideaTitle)}/600/400`;
+  }
+};
+
+export const generateStepImage = async (stepDescription: string, projectTitle: string): Promise<string> => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) return `https://picsum.photos/seed/${encodeURIComponent(stepDescription)}/600/400`;
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          { text: `A clear, instructional photo showing this specific step of a DIY project: "${stepDescription}". The project is "${projectTitle}". Clean background, high quality, educational style.` },
+        ],
+      },
+      config: {
+        imageConfig: { aspectRatio: "16:9" }
+      }
+    });
+
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
+      }
+    }
+    return `https://picsum.photos/seed/${encodeURIComponent(stepDescription)}/600/400`;
+  } catch (err) {
+    return `https://picsum.photos/seed/${encodeURIComponent(stepDescription)}/600/400`;
   }
 };
