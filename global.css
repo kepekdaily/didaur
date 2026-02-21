@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply font-sans;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #16a34a;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Safe area padding for newer phones with notches */
+header {
+  padding-top: env(safe-area-inset-top, 1rem);
+}
+
+nav {
+  padding-bottom: env(safe-area-inset-bottom, 0.75rem);
+}
+
+/* Wireframe Mode Styles */
+.wireframe-mode body {
+  background-color: #f0f4f8 !important;
+}
+
+.wireframe-mode .dark body {
+  background-color: #0f172a !important;
+}
+
+.wireframe-mode img,
+.wireframe-mode video {
+  filter: grayscale(1) contrast(1.2) !important;
+  opacity: 0.3 !important;
+}
+
+.wireframe-mode div,
+.wireframe-mode button,
+.wireframe-mode nav,
+.wireframe-mode header,
+.wireframe-mode section {
+  border: 1px dashed #cbd5e1 !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border-radius: 4px !important;
+}
+
+.wireframe-mode .dark div,
+.wireframe-mode .dark button,
+.wireframe-mode .dark nav,
+.wireframe-mode .dark header {
+  border: 1px dashed #334155 !important;
+}
+
+.wireframe-mode span,
+.wireframe-mode h1,
+.wireframe-mode h2,
+.wireframe-mode h3,
+.wireframe-mode h4,
+.wireframe-mode p {
+  color: #64748b !important;
+  background-color: #f1f5f9 !important;
+  padding: 2px 4px !important;
+}
+
+.wireframe-mode .dark span,
+.wireframe-mode .dark h1,
+.wireframe-mode .dark h2,
+.wireframe-mode .dark h3,
+.wireframe-mode .dark h4,
+.wireframe-mode .dark p {
+  color: #94a3b8 !important;
+  background-color: #1e293b !important;
+}
