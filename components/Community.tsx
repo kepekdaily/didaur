@@ -62,18 +62,18 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
   }, []);
 
   const filteredPosts = useMemo(() => {
-    return posts.filter(p => {
+    return (posts || []).filter(p => {
       const matchesCategory = activeCategory === 'Semua' || p.materialTag === activeCategory;
-      const matchesSearch = p.itemName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                            p.description.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = (p.itemName || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                            (p.description || '').toLowerCase().includes(searchQuery.toLowerCase());
       return matchesCategory && matchesSearch;
     });
   }, [posts, activeCategory, searchQuery]);
 
   const filteredAndSortedMarket = useMemo(() => {
-    return marketItems.filter(m => {
+    return (marketItems || []).filter(m => {
       const matchesCategory = activeCategory === 'Semua' || m.materialTag === activeCategory;
-      const matchesSearch = m.title.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = (m.title || '').toLowerCase().includes(searchQuery.toLowerCase());
       return matchesCategory && matchesSearch;
     });
   }, [marketItems, activeCategory, searchQuery]);
@@ -271,7 +271,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
               <div key={post.id} className="bg-white dark:bg-slate-900 rounded-[3rem] overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 group animate-in slide-in-from-bottom-8 duration-700">
                 <div className="p-6 flex items-center justify-between">
                   <div className="flex items-center space-x-4">
-                    <img src={post.userAvatar} loading="lazy" className="w-12 h-12 rounded-2xl object-cover shadow-sm" />
+                    <img src={post.userAvatar} loading="lazy" referrerPolicy="no-referrer" alt={post.userName} className="w-12 h-12 rounded-2xl object-cover shadow-sm" />
                     <div>
                       <h4 className="font-black text-slate-900 dark:text-slate-100 text-base leading-tight">{post.userName}</h4>
                       <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-0.5">
@@ -282,7 +282,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
                 </div>
                 
                 <div className="relative aspect-[4/5] overflow-hidden">
-                  <img src={post.imageUrl} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000" />
+                  <img src={post.imageUrl} loading="lazy" referrerPolicy="no-referrer" alt={post.itemName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000" />
                   <div className="absolute top-6 right-6">
                      <div className="bg-white/90 dark:bg-slate-950/90 backdrop-blur-md px-4 py-2 rounded-2xl text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase tracking-widest shadow-lg">
                         {post.materialTag}
@@ -337,7 +337,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
               className="bg-white dark:bg-slate-900 rounded-[2rem] overflow-hidden border border-slate-100 dark:border-slate-800 flex flex-col active:scale-95 transition-transform cursor-pointer group"
             >
                <div className="relative aspect-square overflow-hidden">
-                  <img src={item.imageUrl} loading="lazy" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                  <img src={item.imageUrl} loading="lazy" referrerPolicy="no-referrer" alt={item.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                   <div className="absolute top-2 right-2 bg-white/90 px-2 py-1 rounded-lg text-[9px] font-black text-slate-900 uppercase tracking-widest">
                     {item.materialTag}
                   </div>
@@ -356,7 +356,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
       {selectedMarketItem && (
         <div className="fixed inset-0 z-[200] bg-white dark:bg-slate-950 overflow-y-auto no-scrollbar">
            <div className="relative aspect-[4/5] w-full">
-              <img src={selectedMarketItem.imageUrl} className="w-full h-full object-cover" />
+              <img src={selectedMarketItem.imageUrl} referrerPolicy="no-referrer" alt={selectedMarketItem.title} className="w-full h-full object-cover" />
               <button onClick={() => setSelectedMarketItem(null)} className="absolute top-6 left-6 w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center text-white">
                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
               </button>
@@ -367,7 +367,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
                  <span className="text-2xl font-black text-green-600">{selectedMarketItem.price.toLocaleString('id-ID')} XP</span>
               </div>
               <div className="flex items-center space-x-4 p-5 bg-slate-50 dark:bg-slate-900 rounded-[2rem]">
-                 <img src={selectedMarketItem.sellerAvatar} className="w-14 h-14 rounded-2xl object-cover shadow-sm" />
+                 <img src={selectedMarketItem.sellerAvatar} referrerPolicy="no-referrer" alt={selectedMarketItem.sellerName} className="w-14 h-14 rounded-2xl object-cover shadow-sm" />
                  <div>
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Dibuat Oleh</p>
                     <p className="font-black text-slate-900 dark:text-slate-100">{selectedMarketItem.sellerName}</p>
@@ -390,7 +390,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
               <div className="flex-1 overflow-y-auto p-8 space-y-6 no-scrollbar">
                  {currentComments.length > 0 ? currentComments.map(comment => (
                    <div key={comment.id} className="flex space-x-4">
-                      <img src={comment.userAvatar} className="w-10 h-10 rounded-xl object-cover" />
+                      <img src={comment.userAvatar} loading="lazy" referrerPolicy="no-referrer" alt={comment.userName} className="w-10 h-10 rounded-xl object-cover" />
                       <div className="flex-1">
                          <span className="text-xs font-black text-slate-900 dark:text-white">{comment.userName}</span>
                          <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl mt-1 border border-slate-100 dark:border-slate-800">
@@ -434,7 +434,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
               </div>
               <div className="space-y-4 max-h-[70vh] overflow-y-auto no-scrollbar pb-8">
                  <div onClick={() => document.getElementById('up-img')?.click()} className="w-full aspect-video bg-slate-50 dark:bg-slate-800 rounded-[2rem] border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center cursor-pointer overflow-hidden">
-                    {newPost.image ? <img src={newPost.image} className="w-full h-full object-cover" /> : <span className="text-xs font-black text-slate-400 uppercase">Upload Foto</span>}
+                    {newPost.image ? <img src={newPost.image} referrerPolicy="no-referrer" alt="Preview" className="w-full h-full object-cover" /> : <span className="text-xs font-black text-slate-400 uppercase">Upload Foto</span>}
                     <input type="file" id="up-img" hidden onChange={e => {
                       const f = e.target.files?.[0];
                       if(f){
