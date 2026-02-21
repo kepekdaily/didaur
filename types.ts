@@ -14,6 +14,7 @@ export interface DIYIdea {
   toolsNeeded: string[];
   timeEstimate: string;
   imageUrl?: string;
+  imagePrompt?: string;
 }
 
 export interface RecyclingRecommendation {
@@ -25,7 +26,7 @@ export interface RecyclingRecommendation {
   co2Impact: number;
   diyIdeas: DIYIdea[];
   timestamp?: number;
-  originalImage?: string; // Menyimpan foto asli hasil scan
+  originalImage?: string;
 }
 
 export interface Comment {
@@ -93,7 +94,8 @@ export interface UserProfile {
   creationsShared: number;
   totalCo2Saved: number;
   avatar: string;
-  badges: string[]; // IDs of unlocked badges
+  badges: string[];
+  likedPosts: string[]; // Track liked posts in the DB
   purchasedItems?: PurchasedItem[];
 }
 
