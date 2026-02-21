@@ -19,6 +19,54 @@
     <link rel="manifest" href="/manifest.json">
     
     <title>Didaur - Ubah Sampah Jadi Karya</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
+            colors: { eco: { 500: '#22c55e', 600: '#16a34a' } }
+          },
+        },
+      }
+    </script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <style>
+        body { 
+          font-family: 'Plus Jakarta Sans', sans-serif; 
+          margin: 0; 
+          padding: 0; 
+          overflow-x: hidden; 
+          -webkit-tap-highlight-color: transparent;
+        }
+        #root { min-height: 100vh; }
+        .spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #16a34a; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Safe area padding for newer phones with notches */
+        header { padding-top: env(safe-area-inset-top, 1rem); }
+        nav { padding-bottom: env(safe-area-inset-bottom, 0.75rem); }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.39.0",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.93.3",
+    "react-easy-crop": "https://esm.sh/react-easy-crop@^5.5.6",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
+  }
+}
+</script>
 </head>
 <body class="bg-slate-50 dark:bg-slate-950">
     <div id="root">
