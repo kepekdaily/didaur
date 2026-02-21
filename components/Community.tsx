@@ -9,7 +9,8 @@ import {
   purchaseMarketItem, 
   togglePostLike, 
   getPostComments, 
-  savePostComment
+  savePostComment,
+  isCloudConfigured
 } from '../utils/storage';
 
 interface CommunityProps {
@@ -79,6 +80,11 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
   }, [marketItems, activeCategory, searchQuery]);
 
   const handleLike = async (id: string) => {
+    if (!isCloudConfigured()) {
+      setNotification({ message: 'Mode Demo', details: 'Fitur Like memerlukan konfigurasi Supabase.', type: 'error' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
     const postId = String(id);
     const isLiked = user.likedPosts.includes(postId);
 
@@ -98,6 +104,11 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
   };
 
   const handleOpenComments = async (postId: string) => {
+    if (!isCloudConfigured()) {
+      setNotification({ message: 'Mode Demo', details: 'Fitur Komentar memerlukan konfigurasi Supabase.', type: 'error' });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
     const targetId = String(postId);
     setViewingCommentsPostId(targetId);
     setCurrentComments([]);
@@ -155,6 +166,14 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
 
   const handleUpload = async () => {
     if (!newPost.itemName || !newPost.image) return;
+    
+    if (!isCloudConfigured()) {
+      setNotification({ message: 'Mode Demo', details: 'Fitur Unggah memerlukan konfigurasi Supabase.', type: 'error' });
+      setTimeout(() => setNotification(null), 3000);
+      setIsUploading(false);
+      return;
+    }
+
     setIsUploading(false);
     setNotification({ message: 'Mengunggah...', type: 'success' });
 
@@ -196,6 +215,15 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
 
   return (
     <div className="pb-24 animate-in fade-in duration-500">
+      {!isCloudConfigured() && (
+        <div className="mx-6 mt-4 p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-900/30 rounded-2xl flex items-center space-x-3">
+          <span className="text-xl">💡</span>
+          <p className="text-[10px] font-bold text-amber-800 dark:text-amber-400 leading-relaxed">
+            <b>Mode Demo Aktif:</b> Hubungkan Supabase untuk fitur sosial (Like, Komentar, Unggah) dan sinkronisasi data antar perangkat.
+          </p>
+        </div>
+      )}
+      
       {notification && (
         <div className={`fixed top-6 left-6 right-6 z-[300] p-5 rounded-[2rem] shadow-2xl flex items-center space-x-4 border-2 ${
           notification.type === 'success' ? 'bg-slate-900 border-green-500 text-white' : 'bg-rose-600 border-rose-400 text-white'
