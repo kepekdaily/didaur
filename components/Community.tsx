@@ -7,11 +7,9 @@ import {
   updateUserPoints, 
   getMarketItems, 
   purchaseMarketItem, 
-  updatePostLikes, 
+  togglePostLike, 
   getPostComments, 
-  savePostComment,
-  getLikedPosts,
-  saveLikedPosts
+  savePostComment
 } from '../utils/storage';
 
 interface CommunityProps {
@@ -33,7 +31,6 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
   const [activeCategory, setActiveCategory] = useState('Semua');
   const [searchQuery, setSearchQuery] = useState('');
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error', details?: string } | null>(null);
-  const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set<string>());
   
   const [newPost, setNewPost] = useState({ 
     itemName: '', 
@@ -50,8 +47,6 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
     try {
       const fetchedPosts = await getCommunityPosts();
       setPosts(fetchedPosts);
-      // Sinkronkan status liked dari localStorage
-      setLikedPosts(getLikedPosts());
     } catch (e) {
       console.error("Gagal refresh posts:", e);
     }
@@ -85,26 +80,20 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
 
   const handleLike = async (id: string) => {
     const postId = String(id);
-    // Jika sudah di-like, jangan lakukan apa-apa
-    if (likedPosts.has(postId)) return;
-    
-    // 1. Pembaruan Lokal Seketika (Optimistic UI)
-    setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes: (p.likes || 0) + 1 } : p));
-    
-    // Simpan status di Set lokal dan localStorage
-    const newLiked = new Set<string>(likedPosts);
-    newLiked.add(postId);
-    setLikedPosts(newLiked);
-    saveLikedPosts(newLiked);
+    const isLiked = user.likedPosts.includes(postId);
+
+    // Optimistic Update UI
+    setPosts(prev => prev.map(p => 
+      p.id === postId ? { ...p, likes: p.likes + (isLiked ? -1 : 1) } : p
+    ));
 
     try {
-      // 2. Simpan ke Database
-      await updatePostLikes(postId);
-      const updated = await updateUserPoints(5, 0, false);
-      if (updated) onPointsUpdate(updated);
+      const updatedUser = await togglePostLike(postId, user.likedPosts);
+      if (updatedUser) onPointsUpdate(updatedUser);
     } catch (err) {
       console.error("Gagal simpan Like ke database:", err);
-      // Opsional: Batalkan pembaruan lokal jika benar-benar gagal
+      // Fallback
+      refreshPosts();
     }
   };
 
@@ -132,7 +121,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
     };
     
     try {
-      // Pembaruan lokal untuk jumlah komentar
+      // Optimistic count update
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments: (p.comments || 0) + 1 } : p));
       
       const updatedUser = await savePostComment(postId, comment);
@@ -142,8 +131,6 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
       setNewCommentText('');
       
       if (updatedUser) onPointsUpdate(updatedUser);
-      
-      // Sinkronisasi ulang postingan untuk memastikan data terbaru dari DB
       await refreshPosts();
     } catch (err) {
       alert("Maaf, gagal mengirim komentar.");
@@ -278,59 +265,62 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
 
       {activeView === 'Inspirasi' ? (
         <div className="p-6 space-y-10">
-          {filteredPosts.map(post => (
-            <div key={post.id} className="bg-white dark:bg-slate-900 rounded-[3rem] overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 group animate-in slide-in-from-bottom-8 duration-700">
-              <div className="p-6 flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <img src={post.userAvatar} className="w-12 h-12 rounded-2xl object-cover shadow-sm" />
+          {filteredPosts.map(post => {
+            const isLiked = user.likedPosts.includes(post.id);
+            return (
+              <div key={post.id} className="bg-white dark:bg-slate-900 rounded-[3rem] overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 group animate-in slide-in-from-bottom-8 duration-700">
+                <div className="p-6 flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <img src={post.userAvatar} loading="lazy" className="w-12 h-12 rounded-2xl object-cover shadow-sm" />
+                    <div>
+                      <h4 className="font-black text-slate-900 dark:text-slate-100 text-base leading-tight">{post.userName}</h4>
+                      <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-0.5">
+                        {new Date(post.timestamp).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="relative aspect-[4/5] overflow-hidden">
+                  <img src={post.imageUrl} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000" />
+                  <div className="absolute top-6 right-6">
+                     <div className="bg-white/90 dark:bg-slate-950/90 backdrop-blur-md px-4 py-2 rounded-2xl text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase tracking-widest shadow-lg">
+                        {post.materialTag}
+                     </div>
+                  </div>
+                </div>
+
+                <div className="p-8 space-y-6">
+                  <div className="flex items-center justify-between">
+                     <div className="flex items-center space-x-6">
+                        <button 
+                          onClick={() => handleLike(post.id)} 
+                          className={`flex items-center space-x-2 active:scale-125 transition-transform ${isLiked ? 'text-rose-500' : 'text-slate-400'}`}
+                        >
+                           <div className={`p-3 rounded-2xl ${isLiked ? 'bg-rose-50 dark:bg-rose-900/20' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                             <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                           </div>
+                           <span className="text-sm font-black">{post.likes || 0}</span>
+                        </button>
+                        <button onClick={() => handleOpenComments(post.id)} className="flex items-center space-x-2 text-slate-400">
+                           <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl">
+                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                           </div>
+                           <span className="text-sm font-black">{post.comments || 0}</span>
+                        </button>
+                     </div>
+                     <div className="bg-green-600 text-white px-5 py-2 rounded-2xl text-[10px] font-black tracking-widest">
+                       +250 XP
+                     </div>
+                  </div>
                   <div>
-                    <h4 className="font-black text-slate-900 dark:text-slate-100 text-base leading-tight">{post.userName}</h4>
-                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-0.5">
-                      {new Date(post.timestamp).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                    </p>
+                     <h3 className="text-2xl font-black text-slate-900 dark:text-white leading-tight">{post.itemName}</h3>
+                     <p className="text-sm text-slate-500 mt-2 italic line-clamp-2">"{post.description}"</p>
                   </div>
                 </div>
               </div>
-              
-              <div className="relative aspect-[4/5] overflow-hidden">
-                <img src={post.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000" />
-                <div className="absolute top-6 right-6">
-                   <div className="bg-white/90 dark:bg-slate-950/90 backdrop-blur-md px-4 py-2 rounded-2xl text-[10px] font-black text-slate-900 dark:text-slate-100 uppercase tracking-widest shadow-lg">
-                      {post.materialTag}
-                   </div>
-                </div>
-              </div>
-
-              <div className="p-8 space-y-6">
-                <div className="flex items-center justify-between">
-                   <div className="flex items-center space-x-6">
-                      <button 
-                        onClick={() => handleLike(post.id)} 
-                        className={`flex items-center space-x-2 active:scale-125 transition-transform ${likedPosts.has(String(post.id)) ? 'text-rose-500' : 'text-slate-400'}`}
-                      >
-                         <div className={`p-3 rounded-2xl ${likedPosts.has(String(post.id)) ? 'bg-rose-50' : 'bg-slate-100'}`}>
-                           <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                         </div>
-                         <span className="text-sm font-black">{post.likes || 0}</span>
-                      </button>
-                      <button onClick={() => handleOpenComments(post.id)} className="flex items-center space-x-2 text-slate-400">
-                         <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl">
-                           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-                         </div>
-                         <span className="text-sm font-black">{post.comments || 0}</span>
-                      </button>
-                   </div>
-                   <div className="bg-green-600 text-white px-5 py-2 rounded-2xl text-[10px] font-black tracking-widest">
-                     +250 XP
-                   </div>
-                </div>
-                <div>
-                   <h3 className="text-2xl font-black text-slate-900 dark:text-white leading-tight">{post.itemName}</h3>
-                   <p className="text-sm text-slate-500 mt-2 italic line-clamp-2">"{post.description}"</p>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {filteredPosts.length === 0 && (
             <div className="text-center py-20 opacity-30">
                <span className="text-6xl">🌱</span>
@@ -347,7 +337,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
               className="bg-white dark:bg-slate-900 rounded-[2rem] overflow-hidden border border-slate-100 dark:border-slate-800 flex flex-col active:scale-95 transition-transform cursor-pointer group"
             >
                <div className="relative aspect-square overflow-hidden">
-                  <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                  <img src={item.imageUrl} loading="lazy" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                   <div className="absolute top-2 right-2 bg-white/90 px-2 py-1 rounded-lg text-[9px] font-black text-slate-900 uppercase tracking-widest">
                     {item.materialTag}
                   </div>
@@ -395,7 +385,7 @@ const Community: React.FC<CommunityProps> = ({ onPointsUpdate, user, isDarkMode 
            <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-t-[3rem] h-[80vh] flex flex-col">
               <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
                  <h2 className="text-2xl font-black text-slate-900 dark:text-white">Komentar</h2>
-                 <button onClick={() => setViewingCommentsPostId(null)} className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400">✕</button>
+                 <button onClick={() => setViewingCommentsPostId(null)} className="w-10 h-10 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center text-slate-400">✕</button>
               </div>
               <div className="flex-1 overflow-y-auto p-8 space-y-6 no-scrollbar">
                  {currentComments.length > 0 ? currentComments.map(comment => (
