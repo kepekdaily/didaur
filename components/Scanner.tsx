@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import Cropper from 'react-easy-crop';
-import { analyzeImage, generateDIYImage } from '../services/geminiService';
+import { analyzeImage, generateDIYImage, generateStepImage } from '../services/geminiService';
 import { RecyclingRecommendation, UserProfile, DIYIdea } from '../types';
 import { updateUserPoints, saveScanToHistory, getScanHistory, saveCommunityPost } from '../utils/storage';
 
@@ -38,6 +38,8 @@ const Scanner: React.FC<ScannerProps> = ({ user, onPointsUpdate, isDarkMode }) =
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   
   const [ideaImages, setIdeaImages] = useState<Record<number, string>>({});
+  const [stepImages, setStepImages] = useState<Record<string, string>>({});
+  const [loadingStepImage, setLoadingStepImage] = useState<string | null>(null);
   const [selectedTutorial, setSelectedTutorial] = useState<DIYIdea | null>(null);
   const [currentStep, setCurrentStep] = useState<number>(0); 
   const [completionPhoto, setCompletionPhoto] = useState<string | null>(null);
@@ -60,7 +62,7 @@ const Scanner: React.FC<ScannerProps> = ({ user, onPointsUpdate, isDarkMode }) =
   };
 
   const startCamera = async (isCompletion = false) => {
-    stopCamera(); // Pastikan kamera sebelumnya mati
+    stopCamera();
     try {
       const constraints = { 
         video: { 
@@ -71,19 +73,20 @@ const Scanner: React.FC<ScannerProps> = ({ user, onPointsUpdate, isDarkMode }) =
         audio: false 
       };
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (e) {
+        console.warn("Failed with environment facingMode, trying default", e);
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+      
       streamRef.current = stream;
 
       if (isCompletion) {
-        if (completionVideoRef.current) {
-          completionVideoRef.current.srcObject = stream;
-          setIsCompletionCameraActive(true);
-        }
+        setIsCompletionCameraActive(true);
       } else {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          setIsCameraActive(true);
-        }
+        setIsCameraActive(true);
       }
     } catch (err: any) {
       console.error("Camera access error:", err);
@@ -91,9 +94,28 @@ const Scanner: React.FC<ScannerProps> = ({ user, onPointsUpdate, isDarkMode }) =
     }
   };
 
+  useEffect(() => {
+    if (isCameraActive && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [isCameraActive]);
+
+  useEffect(() => {
+    if (isCompletionCameraActive && completionVideoRef.current && streamRef.current) {
+      completionVideoRef.current.srcObject = streamRef.current;
+    }
+  }, [isCompletionCameraActive]);
+
   const handleCapture = (isCompletion = false) => {
     const targetVideo = isCompletion ? completionVideoRef.current : videoRef.current;
+    console.log("Attempting capture. Target video:", targetVideo);
+    
     if (targetVideo && canvasRef.current) {
+      if (targetVideo.videoWidth === 0 || targetVideo.videoHeight === 0) {
+        console.warn("Video dimensions are 0. Video might not be ready.");
+        return;
+      }
+      
       const canvas = canvasRef.current;
       canvas.width = targetVideo.videoWidth;
       canvas.height = targetVideo.videoHeight;
@@ -102,14 +124,18 @@ const Scanner: React.FC<ScannerProps> = ({ user, onPointsUpdate, isDarkMode }) =
         ctx.drawImage(targetVideo, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
         if (isCompletion) {
+          console.log("Completion photo captured");
           setCompletionPhoto(dataUrl);
           stopCamera();
         } else {
+          console.log("Scan photo captured");
           setTempImage(dataUrl);
           setIsCropping(true);
           stopCamera();
         }
       }
+    } else {
+      console.error("Capture failed: targetVideo or canvasRef is null", { targetVideo, canvas: canvasRef.current });
     }
   };
 
@@ -149,7 +175,7 @@ const Scanner: React.FC<ScannerProps> = ({ user, onPointsUpdate, isDarkMode }) =
 
       finalData.diyIdeas.forEach(async (idea, idx) => {
         try {
-          const imgUrl = await generateDIYImage(idea.title, finalData.itemName);
+          const imgUrl = await generateDIYImage(idea.title, finalData.itemName, idea.imagePrompt);
           setIdeaImages(prev => ({ ...prev, [idx]: imgUrl }));
           updateHistoryItemImage(finalData.timestamp!, idx, imgUrl);
         } catch (e) {}
@@ -172,6 +198,20 @@ const Scanner: React.FC<ScannerProps> = ({ user, onPointsUpdate, isDarkMode }) =
     }
   };
 
+  const handleGenerateStepImage = async (step: string, title: string) => {
+    const key = `${title}-${step}`;
+    if (stepImages[key]) return;
+    
+    setLoadingStepImage(key);
+    try {
+      const imgUrl = await generateStepImage(step, title);
+      setStepImages(prev => ({ ...prev, [key]: imgUrl }));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingStepImage(null);
+    }
+  };
   const handleFinishTutorial = async () => {
     if (!selectedTutorial || !completionPhoto) return;
     setLoading(true);
@@ -308,7 +348,7 @@ const Scanner: React.FC<ScannerProps> = ({ user, onPointsUpdate, isDarkMode }) =
                         <div key={idx} className="bg-white dark:bg-slate-900 rounded-[3rem] p-6 border border-slate-100 dark:border-slate-800 space-y-5 shadow-sm group">
                           <div className="relative overflow-hidden rounded-[2rem] aspect-[16/10] bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
                              {ideaImages[idx] ? (
-                               <img src={ideaImages[idx]} className="w-full h-full object-cover animate-in fade-in duration-1000" />
+                               <img src={ideaImages[idx]} loading="lazy" className="w-full h-full object-cover animate-in fade-in duration-1000" />
                              ) : (
                                <div className="flex flex-col items-center space-y-2 opacity-40">
                                  <div className="w-8 h-8 border-2 border-slate-400 border-t-green-500 rounded-full animate-spin"></div>
@@ -352,7 +392,7 @@ const Scanner: React.FC<ScannerProps> = ({ user, onPointsUpdate, isDarkMode }) =
              <div key={idx} onClick={() => { setResult(item); setImage(item.originalImage || null); setActiveTab('Scan'); }} className="bg-white dark:bg-slate-900 p-4 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 flex items-center space-x-5 cursor-pointer active:scale-95 transition-all shadow-sm">
                 <div className="w-20 h-20 bg-slate-50 dark:bg-slate-800 rounded-2xl overflow-hidden">
                    {item.originalImage ? (
-                     <img src={item.originalImage} className="w-full h-full object-cover" />
+                     <img src={item.originalImage} loading="lazy" className="w-full h-full object-cover" />
                    ) : (
                      <div className="w-full h-full flex items-center justify-center text-2xl">📦</div>
                    )}
@@ -387,7 +427,7 @@ const Scanner: React.FC<ScannerProps> = ({ user, onPointsUpdate, isDarkMode }) =
               {currentStep === -1 ? (
                 <div className="space-y-8">
                    <div className="rounded-[2.5rem] overflow-hidden aspect-video shadow-2xl">
-                      <img src={selectedTutorial.imageUrl || `https://picsum.photos/seed/${selectedTutorial.title}/600/400`} className="w-full h-full object-cover" />
+                      <img src={selectedTutorial.imageUrl || `https://picsum.photos/seed/${selectedTutorial.title}/600/400`} loading="lazy" className="w-full h-full object-cover" />
                    </div>
                    <div className="space-y-4">
                       <h3 className="font-black text-slate-900 dark:text-white uppercase tracking-widest text-[10px]">Alat & Bahan:</h3>
@@ -408,10 +448,33 @@ const Scanner: React.FC<ScannerProps> = ({ user, onPointsUpdate, isDarkMode }) =
                       <span className="text-[10px] font-black opacity-60 uppercase">Tahap</span>
                       <span className="text-4xl font-black">{currentStep + 1}</span>
                    </div>
-                   <div className="p-8 bg-slate-50 dark:bg-slate-900 rounded-[3rem] border border-slate-100 dark:border-slate-800 w-full min-h-[200px] flex items-center justify-center shadow-inner">
+                   <div className="p-8 bg-slate-50 dark:bg-slate-900 rounded-[3rem] border border-slate-100 dark:border-slate-800 w-full min-h-[200px] flex flex-col items-center justify-center shadow-inner space-y-4">
                       <p className="text-xl font-black text-center leading-relaxed text-slate-900 dark:text-white px-2">
                         {selectedTutorial.steps[currentStep]}
                       </p>
+                      
+                      {stepImages[`${selectedTutorial.title}-${selectedTutorial.steps[currentStep]}`] ? (
+                        <div className="w-full aspect-video rounded-2xl overflow-hidden shadow-lg animate-in zoom-in">
+                          <img src={stepImages[`${selectedTutorial.title}-${selectedTutorial.steps[currentStep]}`]} loading="lazy" className="w-full h-full object-cover" />
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => handleGenerateStepImage(selectedTutorial!.steps[currentStep], selectedTutorial!.title)}
+                          disabled={loadingStepImage === `${selectedTutorial.title}-${selectedTutorial.steps[currentStep]}`}
+                          className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-green-600 bg-green-50 dark:bg-green-950/30 px-4 py-2 rounded-full hover:bg-green-100 transition-colors"
+                        >
+                          {loadingStepImage === `${selectedTutorial.title}-${selectedTutorial.steps[currentStep]}` ? (
+                            <>
+                              <div className="w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+                              <span>Menyiapkan Visual...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>✨ Lihat Visualisasi Tahap Ini</span>
+                            </>
+                          )}
+                        </button>
+                      )}
                    </div>
                    <div className="flex w-full space-x-4">
                       <button onClick={() => setCurrentStep(prev => prev - 1)} className="flex-1 bg-slate-100 dark:bg-slate-800 py-5 rounded-2xl font-black text-slate-400 text-xs uppercase tracking-widest">Kembali</button>
